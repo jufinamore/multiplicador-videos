@@ -1,6 +1,6 @@
 {
-  "name": "Multiplicador de Vídeos",
-  "short_name": "Multiplicador",
+  "name": "Video Matrix Pro",
+  "short_name": "MatrixPro",
   "description": "Une ganchos, corpos e ctas em vídeos finais, direto no navegador.",
   "start_url": "./index.html",
   "scope": "./",

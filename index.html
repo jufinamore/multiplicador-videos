@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Multiplicador de Vídeos</title>
+<title>Video Matrix Pro</title>
 
 <!-- PWA -->
 <link rel="manifest" href="manifest.json" />
@@ -12,7 +12,7 @@
 <!-- iOS home screen support -->
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Multiplicador" />
+<meta name="apple-mobile-web-app-title" content="Video Matrix Pro" />
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 
 <!-- Telegram Mini App SDK (safe to load even outside Telegram) -->
@@ -117,12 +117,37 @@
     border-radius: 8px; padding: 10px; margin-top: 10px; max-height: 140px; overflow-y: auto; white-space: pre-wrap;
   }
   .hint { font-size: 11px; color: var(--faint); margin-top: 14px; line-height: 1.5; }
+  .gate {
+    position: fixed; inset: 0; background: #1F1B3A; color: #fff; z-index: 9999;
+    display: flex; align-items: center; justify-content: center; flex-direction: column;
+    padding: 24px; text-align: center;
+  }
+  .gate.hidden { display: none; }
+  .gate h2 { font-size: 20px; margin-bottom: 6px; }
+  .gate p { font-size: 13px; color: #C9C5D8; margin-bottom: 20px; max-width: 320px; }
+  .gate input {
+    width: 100%; max-width: 280px; padding: 12px 14px; border-radius: 8px; border: none;
+    font-size: 15px; margin-bottom: 10px; text-align: center;
+  }
+  .gate button {
+    width: 100%; max-width: 280px; padding: 12px; border-radius: 8px; border: none;
+    background: #FF4D6D; color: #fff; font-weight: 700; font-size: 15px; cursor: pointer;
+  }
+  .gate .err { color: #FF9FAE; font-size: 12px; margin-top: 10px; min-height: 16px; }
 </style>
 </head>
 <body>
-  <div class="eyebrow">Multiplicador de vídeos</div>
-  <h1>Ganchos × Corpos × CTAs</h1>
-  <div class="subtitle">Sobe os clipes direto da memória do iPhone. Tudo roda aqui no navegador — nada é enviado pra nenhum servidor. O sistema une os clipes e devolve os vídeos prontos pra baixar.</div>
+  <div class="gate" id="gate">
+    <h2>Video Matrix Pro</h2>
+    <p>Digite o código da sua compra (o código de transação que veio no seu recibo da Hotmart).</p>
+    <input type="password" id="gateInput" placeholder="Código da transação (ex: HP123456789012)" autocomplete="off" />
+    <button id="gateBtn">Entrar</button>
+    <div class="err" id="gateErr"></div>
+  </div>
+
+  <div class="eyebrow">Multiplicador de conteúdo</div>
+  <h1>Video Matrix Pro</h1>
+  <div class="subtitle">Sobe os clipes direto da memória da sua galeria. Tudo roda aqui no navegador — nada é enviado pra nenhum servidor. O sistema une os clipes e devolve os vídeos prontos pra baixar.</div>
 
   <div class="tabs" id="tabs"></div>
   <div class="product-name-row" id="productNameRow"></div>
@@ -145,6 +170,62 @@
   </div>
 
 <script>
+(function () {
+  "use strict";
+
+  // ---------- Access gate ----------
+  // Troque a senha abaixo pela que você quiser vender/entregar.
+  // A verificação de código agora acontece no servidor (função verify-code),
+  // ligada automaticamente às compras aprovadas na Hotmart.
+  var GATE_STORAGE_KEY = "vmp_unlocked";
+
+  var gateEl = document.getElementById("gate");
+  var gateInput = document.getElementById("gateInput");
+  var gateBtn = document.getElementById("gateBtn");
+  var gateErr = document.getElementById("gateErr");
+
+  function unlock() {
+    try { localStorage.setItem(GATE_STORAGE_KEY, "1"); } catch (e) {}
+    gateEl.classList.add("hidden");
+  }
+
+  function tryUnlock() {
+    var entered = gateInput.value.trim().toUpperCase();
+    if (!entered) return;
+    gateBtn.disabled = true;
+    gateBtn.textContent = "Verificando...";
+    gateErr.textContent = "";
+
+    fetch("/.netlify/functions/verify-code?code=" + encodeURIComponent(entered))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        gateBtn.disabled = false;
+        gateBtn.textContent = "Entrar";
+        if (data && data.valid) {
+          unlock();
+        } else {
+          gateErr.textContent = "Código incorreto ou expirado. Confira e tente de novo.";
+        }
+      })
+      .catch(function () {
+        gateBtn.disabled = false;
+        gateBtn.textContent = "Entrar";
+        gateErr.textContent = "Não foi possível verificar agora. Confira sua internet e tente de novo.";
+      });
+  }
+
+  var alreadyUnlocked = false;
+  try { alreadyUnlocked = localStorage.getItem(GATE_STORAGE_KEY) === "1"; } catch (e) {}
+  if (alreadyUnlocked) {
+    gateEl.classList.add("hidden");
+  } else {
+    gateBtn.addEventListener("click", tryUnlock);
+    gateInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") tryUnlock();
+    });
+  }
+})();
+
 (function () {
   "use strict";
 
@@ -365,6 +446,7 @@
     return new Promise(function (resolve, reject) {
       var s = document.createElement("script");
       s.src = src;
+      s.crossOrigin = "anonymous";
       s.onload = function () { resolve(); };
       s.onerror = function () { reject(new Error("Falha ao carregar " + src)); };
       document.head.appendChild(s);
