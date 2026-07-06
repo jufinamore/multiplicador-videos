@@ -153,6 +153,10 @@
   <div class="product-name-row" id="productNameRow"></div>
   <div class="columns" id="columns"></div>
   <div class="summary" id="summary"></div>
+  <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:12px; cursor:pointer;">
+    <input type="checkbox" id="silenceToggle" style="accent-color:#FF4D6D;" />
+    Cortar silêncios automaticamente (deixa o processamento mais lento)
+  </label>
   <button class="primary" id="generateBtn">Gerar vídeos</button>
 
   <div class="progress-wrap" id="progressWrap" style="display:none">
@@ -177,7 +181,7 @@
   // Código universal (não depende de compra na Hotmart) — use para você mesma
   // ou para compartilhar com quem quiser, sem precisar de cupom/venda.
   // Troque o valor abaixo por algo só seu.
-  var MASTER_CODE = "video-matrix-pro";
+  var MASTER_CODE = "JUFAMILIA2026";
   // A verificação dos demais códigos acontece no servidor (função verify-code),
   // ligada automaticamente às compras aprovadas na Hotmart.
   var GATE_STORAGE_KEY = "vmp_unlocked";
@@ -491,6 +495,88 @@
     return ffmpegLoadingPromise;
   }
 
+  function removeSilenceFromFile(ff, file, onStatus) {
+    var FFmpegUtil = window.FFmpeg;
+    var suffix = Math.random().toString(36).slice(2, 8);
+    var inputName = "src_" + suffix + ".mp4";
+    var outputName = "trim_" + suffix + ".mp4";
+
+    function cleanup(names) {
+      names.forEach(function (n) { try { ff.FS("unlink", n); } catch (e) {} });
+    }
+
+    return FFmpegUtil.fetchFile(file).then(function (data) {
+      ff.FS("writeFile", inputName, data);
+      var startIdx = logLines.length;
+      return ff.run("-i", inputName, "-af", "silencedetect=noise=-30dB:d=0.4", "-f", "null", "-")
+        .catch(function () {})
+        .then(function () { return logLines.slice(startIdx); });
+    }).then(function (newLines) {
+      var duration = null;
+      var silences = [];
+      var curStart = null;
+      newLines.forEach(function (line) {
+        var dm = line.match(/Duration:\s*(\d+):(\d+):(\d+\.?\d*)/);
+        if (dm) duration = (+dm[1]) * 3600 + (+dm[2]) * 60 + parseFloat(dm[3]);
+        var sm = line.match(/silence_start:\s*([\d.]+)/);
+        if (sm) curStart = parseFloat(sm[1]);
+        var em = line.match(/silence_end:\s*([\d.]+)/);
+        if (em && curStart !== null) {
+          silences.push([curStart, parseFloat(em[1])]);
+          curStart = null;
+        }
+      });
+
+      if (!duration || silences.length === 0) {
+        cleanup([inputName]);
+        return file;
+      }
+
+      var pad = 0.12;
+      var segments = [];
+      var prevEnd = 0;
+      silences.forEach(function (s) {
+        var keepStart = prevEnd;
+        var keepEnd = Math.min(s[0] + pad, duration);
+        if (keepEnd > keepStart + 0.05) segments.push([keepStart, keepEnd]);
+        prevEnd = Math.max(s[1] - pad, keepStart);
+      });
+      if (prevEnd < duration - 0.05) segments.push([prevEnd, duration]);
+
+      var noRealCut = segments.length === 0 ||
+        (segments.length === 1 && segments[0][0] < 0.05 && segments[0][1] > duration - 0.05);
+      if (noRealCut) {
+        cleanup([inputName]);
+        return file;
+      }
+
+      onStatus && onStatus("removendo silêncio...");
+
+      var filterParts = [];
+      var refs = "";
+      segments.forEach(function (seg, idx) {
+        filterParts.push("[0:v]trim=start=" + seg[0].toFixed(3) + ":end=" + seg[1].toFixed(3) + ",setpts=PTS-STARTPTS[v" + idx + "]");
+        filterParts.push("[0:a]atrim=start=" + seg[0].toFixed(3) + ":end=" + seg[1].toFixed(3) + ",asetpts=PTS-STARTPTS[a" + idx + "]");
+        refs += "[v" + idx + "][a" + idx + "]";
+      });
+      var filterComplex = filterParts.join(";") + ";" + refs + "concat=n=" + segments.length + ":v=1:a=1[outv][outa]";
+
+      return ff.run("-i", inputName, "-filter_complex", filterComplex, "-map", "[outv]", "-map", "[outa]",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "aac", outputName)
+        .catch(function () {})
+        .then(function () {
+          var data = null;
+          try { data = ff.FS("readFile", outputName); } catch (e) {}
+          cleanup([inputName, outputName]);
+          if (!data || data.length === 0) return file;
+          return new Blob([data.buffer], { type: "video/mp4" });
+        });
+    }).catch(function () {
+      cleanup([inputName, outputName]);
+      return file;
+    });
+  }
+
   function joinClips(ff, files, outName, onStatus) {
     var FFmpegUtil = window.FFmpeg;
     var names = files.map(function (_, i) { return "in" + i + ".mp4"; });
@@ -561,6 +647,12 @@
       });
     });
 
+    var removeSilenceOn = document.getElementById("silenceToggle").checked;
+    var silenceCache = {};
+    function getFile(item) {
+      return (removeSilenceOn && silenceCache[item.id]) ? silenceCache[item.id] : item.file;
+    }
+
     state.processing = true;
     state.results = [];
     state.error = null;
@@ -570,41 +662,75 @@
     render();
 
     ensureFFmpeg().then(function (ff) {
-      var i = 0;
-      function next() {
-        if (i >= combos.length) {
-          state.processing = false;
-          els.progressText.textContent = "Concluído: " + combos.length + " vídeos prontos.";
-          render();
-          return;
-        }
-        var combo = combos[i];
-        var outName = "out" + i + ".mp4";
-        var label = "G" + (combo.hi + 1) + "+C" + (combo.ci + 1) + "+CTA" + (combo.ti + 1);
-        els.progressText.textContent = "Processando " + (i + 1) + " de " + combos.length + " (" + label + ")...";
-        els.progressFill.style.width = Math.round(((i) / combos.length) * 100) + "%";
-
-        joinClips(ff, [combo.h.file, combo.c.file, combo.t.file], outName, function (status) {
-          els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
-        })
-          .then(function (blob) {
-            var url = URL.createObjectURL(blob);
-            var filename = p.name.replace(/[^a-z0-9]+/gi, "-") + "-" + label + ".mp4";
-            state.results.push({ name: label, filename: filename, url: url, blob: blob });
-            els.progressFill.style.width = Math.round(((i + 1) / combos.length) * 100) + "%";
-            renderResults();
-            i += 1;
-            next();
-          })
-          .catch(function (e) {
-            state.error = "Erro ao processar " + label + ": " + e.message +
-              ". Isso costuma acontecer quando os clipes têm formatos/resoluções muito diferentes entre si. " +
-              "Os vídeos já processados continuam disponíveis pra download abaixo.";
+      function runCombos() {
+        var i = 0;
+        function next() {
+          if (i >= combos.length) {
             state.processing = false;
+            els.progressText.textContent = "Concluído: " + combos.length + " vídeos prontos.";
             render();
-          });
+            return;
+          }
+          var combo = combos[i];
+          var outName = "out" + i + ".mp4";
+          var label = "G" + (combo.hi + 1) + "+C" + (combo.ci + 1) + "+CTA" + (combo.ti + 1);
+          els.progressText.textContent = "Processando " + (i + 1) + " de " + combos.length + " (" + label + ")...";
+          els.progressFill.style.width = Math.round(((i) / combos.length) * 100) + "%";
+
+          joinClips(ff, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, function (status) {
+            els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
+          })
+            .then(function (blob) {
+              var url = URL.createObjectURL(blob);
+              var filename = p.name.replace(/[^a-z0-9]+/gi, "-") + "-" + label + ".mp4";
+              state.results.push({ name: label, filename: filename, url: url, blob: blob });
+              els.progressFill.style.width = Math.round(((i + 1) / combos.length) * 100) + "%";
+              renderResults();
+              i += 1;
+              next();
+            })
+            .catch(function (e) {
+              state.error = "Erro ao processar " + label + ": " + e.message +
+                ". Isso costuma acontecer quando os clipes têm formatos/resoluções muito diferentes entre si. " +
+                "Os vídeos já processados continuam disponíveis pra download abaixo.";
+              state.processing = false;
+              render();
+            });
+        }
+        next();
       }
-      next();
+
+      if (!removeSilenceOn) {
+        runCombos();
+        return;
+      }
+
+      var uniqueClips = [];
+      var seen = {};
+      [p.hooks, p.corpos, p.ctas].forEach(function (list) {
+        list.forEach(function (item) {
+          if (!seen[item.id]) { seen[item.id] = true; uniqueClips.push(item); }
+        });
+      });
+
+      var idx = 0;
+      function prepNext() {
+        if (idx >= uniqueClips.length) { runCombos(); return; }
+        var item = uniqueClips[idx];
+        els.progressText.textContent = "Removendo silêncio: clipe " + (idx + 1) + " de " + uniqueClips.length + "...";
+        removeSilenceFromFile(ff, item.file, function (status) {
+          els.progressText.textContent = "Clipe " + (idx + 1) + " de " + uniqueClips.length + ": " + status;
+        }).then(function (blob) {
+          silenceCache[item.id] = blob;
+          idx += 1;
+          prepNext();
+        }).catch(function () {
+          silenceCache[item.id] = item.file;
+          idx += 1;
+          prepNext();
+        });
+      }
+      prepNext();
     }).catch(function (e) {
       state.error = "Não foi possível carregar o motor de vídeo: " + e.message + ". Tente tocar em \"Gerar vídeos\" de novo — se persistir, recarregue a página.";
       state.processing = false;
