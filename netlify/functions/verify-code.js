@@ -1,5 +1,13 @@
 const { getStore } = require("@netlify/blobs");
 
+function accessCodesStore() {
+  return getStore({
+    name: "access-codes",
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_BLOBS_TOKEN,
+  });
+}
+
 exports.handler = async function (event) {
   var corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -29,7 +37,7 @@ exports.handler = async function (event) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ valid: false, error: "missing code" }) };
   }
 
-  var store = getStore("access-codes");
+  var store = accessCodesStore();
   var record = await store.get(code);
 
   return {

@@ -1,5 +1,13 @@
 const { getStore } = require("@netlify/blobs");
 
+function accessCodesStore() {
+  return getStore({
+    name: "access-codes",
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_BLOBS_TOKEN,
+  });
+}
+
 // Eventos que LIBERAM acesso
 const APPROVED_EVENTS = ["PURCHASE_APPROVED", "PURCHASE_COMPLETE"];
 // Eventos que REVOGAM acesso
@@ -37,7 +45,7 @@ exports.handler = async function (event) {
     return { statusCode: 200, body: "Sem transaction id, ignorado" };
   }
 
-  var store = getStore("access-codes");
+  var store = accessCodesStore();
   var codeKey = String(transaction).trim().toUpperCase();
 
   if (APPROVED_EVENTS.indexOf(eventType) !== -1) {
