@@ -174,8 +174,11 @@
   "use strict";
 
   // ---------- Access gate ----------
-  // Troque a senha abaixo pela que você quiser vender/entregar.
-  // A verificação de código agora acontece no servidor (função verify-code),
+  // Código universal (não depende de compra na Hotmart) — use para você mesma
+  // ou para compartilhar com quem quiser, sem precisar de cupom/venda.
+  // Troque o valor abaixo por algo só seu.
+  var MASTER_CODE = "video-matrix-pro";
+  // A verificação dos demais códigos acontece no servidor (função verify-code),
   // ligada automaticamente às compras aprovadas na Hotmart.
   var GATE_STORAGE_KEY = "vmp_unlocked";
 
@@ -192,6 +195,12 @@
   function tryUnlock() {
     var entered = gateInput.value.trim().toUpperCase();
     if (!entered) return;
+
+    if (entered === MASTER_CODE.toUpperCase()) {
+      unlock();
+      return;
+    }
+
     gateBtn.disabled = true;
     gateBtn.textContent = "Verificando...";
     gateErr.textContent = "";
