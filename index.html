@@ -562,6 +562,16 @@
     return ffmpegLoadingPromise;
   }
 
+  function recycleFFmpeg(onStatus) {
+    onStatus && onStatus("liberando memória...");
+    try {
+      if (ffmpegInstance && typeof ffmpegInstance.exit === "function") ffmpegInstance.exit();
+    } catch (e) {}
+    ffmpegInstance = null;
+    ffmpegLoadingPromise = null;
+    return ensureFFmpeg();
+  }
+
   function removeSilenceFromFile(ff, file, noiseDb, onStatus) {
     var FFmpegUtil = window.FFmpeg;
     var suffix = Math.random().toString(36).slice(2, 8);
@@ -732,6 +742,10 @@
     render();
 
     ensureFFmpeg().then(function (ff) {
+      var currentFF = ff;
+      var RECYCLE_EVERY_COMBO = 6;
+      var RECYCLE_EVERY_CLIP = 5;
+
       function runCombos() {
         var i = 0;
         function next() {
@@ -747,25 +761,40 @@
           els.progressText.textContent = "Processando " + (i + 1) + " de " + combos.length + " (" + label + ")...";
           els.progressFill.style.width = Math.round(((i) / combos.length) * 100) + "%";
 
-          joinClips(ff, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, function (status) {
-            els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
-          })
-            .then(function (blob) {
-              var url = URL.createObjectURL(blob);
-              var filename = p.name.replace(/[^a-z0-9]+/gi, "-") + "-" + label + ".mp4";
-              state.results.push({ name: label, filename: filename, url: url, blob: blob });
-              els.progressFill.style.width = Math.round(((i + 1) / combos.length) * 100) + "%";
-              renderResults();
-              i += 1;
-              next();
+          function afterMaybeRecycle() {
+            joinClips(currentFF, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, function (status) {
+              els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
             })
-            .catch(function (e) {
-              state.error = "Erro ao processar " + label + ": " + e.message +
-                ". Isso costuma acontecer quando os clipes têm formatos/resoluções muito diferentes entre si. " +
-                "Os vídeos já processados continuam disponíveis pra download abaixo.";
-              state.processing = false;
-              render();
+              .then(function (blob) {
+                var url = URL.createObjectURL(blob);
+                var filename = p.name.replace(/[^a-z0-9]+/gi, "-") + "-" + label + ".mp4";
+                state.results.push({ name: label, filename: filename, url: url, blob: blob });
+                els.progressFill.style.width = Math.round(((i + 1) / combos.length) * 100) + "%";
+                renderResults();
+                i += 1;
+                next();
+              })
+              .catch(function (e) {
+                state.error = "Erro ao processar " + label + ": " + e.message +
+                  ". Isso costuma acontecer quando os clipes têm formatos/resoluções muito diferentes entre si. " +
+                  "Os vídeos já processados continuam disponíveis pra download abaixo.";
+                state.processing = false;
+                render();
+              });
+          }
+
+          if (i > 0 && i % RECYCLE_EVERY_COMBO === 0) {
+            recycleFFmpeg(function (status) {
+              els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + ": " + status;
+            }).then(function (freshFF) {
+              currentFF = freshFF;
+              afterMaybeRecycle();
+            }).catch(function () {
+              afterMaybeRecycle();
             });
+          } else {
+            afterMaybeRecycle();
+          }
         }
         next();
       }
@@ -787,18 +816,34 @@
       function prepNext() {
         if (idx >= uniqueClips.length) { runCombos(); return; }
         var item = uniqueClips[idx];
-        els.progressText.textContent = "Removendo silêncio: clipe " + (idx + 1) + " de " + uniqueClips.length + "...";
-        removeSilenceFromFile(ff, item.file, noiseDb, function (status) {
-          els.progressText.textContent = "Clipe " + (idx + 1) + " de " + uniqueClips.length + ": " + status;
-        }).then(function (blob) {
-          silenceCache[item.id] = blob;
-          idx += 1;
-          prepNext();
-        }).catch(function () {
-          silenceCache[item.id] = item.file;
-          idx += 1;
-          prepNext();
-        });
+
+        function afterMaybeRecycle() {
+          els.progressText.textContent = "Removendo silêncio: clipe " + (idx + 1) + " de " + uniqueClips.length + "...";
+          removeSilenceFromFile(currentFF, item.file, noiseDb, function (status) {
+            els.progressText.textContent = "Clipe " + (idx + 1) + " de " + uniqueClips.length + ": " + status;
+          }).then(function (blob) {
+            silenceCache[item.id] = blob;
+            idx += 1;
+            prepNext();
+          }).catch(function () {
+            silenceCache[item.id] = item.file;
+            idx += 1;
+            prepNext();
+          });
+        }
+
+        if (idx > 0 && idx % RECYCLE_EVERY_CLIP === 0) {
+          recycleFFmpeg(function (status) {
+            els.progressText.textContent = "Clipe " + (idx + 1) + " de " + uniqueClips.length + ": " + status;
+          }).then(function (freshFF) {
+            currentFF = freshFF;
+            afterMaybeRecycle();
+          }).catch(function () {
+            afterMaybeRecycle();
+          });
+        } else {
+          afterMaybeRecycle();
+        }
       }
       prepNext();
     }).catch(function (e) {
