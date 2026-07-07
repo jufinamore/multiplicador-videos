@@ -1,4 +1,4 @@
-var CACHE_NAME = "multiplicador-videos-v8";
+var CACHE_NAME = "multiplicador-videos-v9";
 var SHELL_FILES = ["./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", function (event) {

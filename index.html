@@ -497,9 +497,11 @@
   }
 
   function saveBatchToGallery(onDone) {
+    var GALLERY_SAFE_CHUNK = 10;
+    var subset = state.pendingBatch.slice(0, GALLERY_SAFE_CHUNK);
     var files;
     try {
-      files = state.pendingBatch.map(function (r) { return new File([r.blob], r.filename, { type: "video/mp4" }); });
+      files = subset.map(function (r) { return new File([r.blob], r.filename, { type: "video/mp4" }); });
     } catch (e) { onDone && onDone(); return; }
     if (navigator.canShare && navigator.canShare({ files: files })) {
       navigator.share({ files: files, title: "Video Matrix Pro" })
@@ -565,9 +567,10 @@
       html += '<div style="margin-top:12px; padding:14px; border-radius:12px; background:var(--card); border:1px solid var(--card-border);">' +
         '<div style="font-size:13px; margin-bottom:10px;">Lote de <b>' + state.pendingBatch.length + '</b> vídeos pronto. Salve (pode tentar mais de uma vez, se precisar) e só depois toque em "Continuar":</div>';
       if (canShareFiles) {
-        html += '<button class="download-all" id="batchGalleryBtn" style="margin-bottom:8px;">📱 Salvar ' + state.pendingBatch.length + ' na Galeria</button>';
+        var galleryCount = Math.min(10, state.pendingBatch.length);
+        html += '<button class="download-all" id="batchGalleryBtn" style="margin-bottom:8px;">📱 Salvar ' + galleryCount + ' na Galeria (mais seguro em partes menores)</button>';
       }
-      html += '<button class="download-all" id="batchZipBtn" style="background:linear-gradient(135deg, var(--violet), var(--accent)); margin-bottom:8px;">⬇️ Baixar ' + state.pendingBatch.length + ' em .zip</button>';
+      html += '<button class="download-all" id="batchZipBtn" style="background:linear-gradient(135deg, var(--violet), var(--accent)); margin-bottom:8px;">⬇️ Baixar ' + state.pendingBatch.length + ' em .zip (recomendado no celular)</button>';
       html += '<div style="font-size:11px; color:var(--muted); margin:8px 0;">Confira que os arquivos realmente baixaram/salvaram antes de continuar — depois de continuar, esse lote sai da memória e não pode ser gerado de novo sem refazer o processo.</div>';
       html += '<button class="download-all" id="batchContinueBtn" style="background:var(--ok); color:#06231C;">✅ Já salvei, continuar</button>';
       html += '</div>';
