@@ -468,12 +468,34 @@
     els.errorArea.innerHTML = '<div class="error-box">' + escapeHtml(state.error) + '</div>';
   }
 
+  function shareToGallery(blob, filename) {
+    try {
+      var file = new File([blob], filename, { type: "video/mp4" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: filename }).catch(function () {});
+        return;
+      }
+    } catch (e) {}
+    // Fallback: navegador não suporta compartilhar arquivo — usa o download normal
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   function renderResults() {
     if (state.results.length === 0) { els.results.innerHTML = ""; return; }
     var html = "";
-    state.results.forEach(function (r) {
-      html += '<div class="result-item"><span>' + escapeHtml(r.name) + '</span>' +
-        '<a href="' + r.url + '" download="' + escapeHtml(r.filename) + '">Baixar</a></div>';
+    var canShareFiles = !!(navigator.canShare);
+    state.results.forEach(function (r, idx) {
+      html += '<div class="result-item"><span>' + escapeHtml(r.name) + '</span>';
+      if (canShareFiles) {
+        html += '<button class="gallery-btn" data-idx="' + idx + '" style="border:1px solid var(--card-border); background:rgba(255,255,255,0.06); color:var(--text); border-radius:8px; padding:5px 10px; font-size:11px; cursor:pointer; margin-left:auto;">📱 Salvar na Galeria</button>';
+      }
+      html += '<a href="' + r.url + '" download="' + escapeHtml(r.filename) + '"' + (canShareFiles ? ' style="margin-left:8px;"' : '') + '>Baixar</a></div>';
     });
     if (!state.processing) {
       html += '<button class="download-all" id="downloadAllBtn">Baixar todos em .zip</button>';
@@ -481,6 +503,12 @@
     els.results.innerHTML = html;
     var allBtn = document.getElementById("downloadAllBtn");
     if (allBtn) allBtn.addEventListener("click", downloadAllZip);
+    els.results.querySelectorAll(".gallery-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var r = state.results[parseInt(btn.getAttribute("data-idx"), 10)];
+        if (r) shareToGallery(r.blob, r.filename);
+      });
+    });
   }
 
   function render() {
