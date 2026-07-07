@@ -496,46 +496,101 @@
     a.remove();
   }
 
-  function shareAllToGallery() {
+  function saveBatchToGallery(onDone) {
+    var files;
     try {
-      var files = state.results.map(function (r) {
-        return new File([r.blob], r.filename, { type: "video/mp4" });
-      });
-      if (navigator.canShare && navigator.canShare({ files: files })) {
-        navigator.share({ files: files, title: "Video Matrix Pro" }).catch(function () {});
-        return;
-      }
-    } catch (e) {}
-    els.progressText.textContent = "Seu navegador não suporta salvar vários vídeos de uma vez na galeria — use o botão individual em cada vídeo, ou o .zip.";
+      files = state.pendingBatch.map(function (r) { return new File([r.blob], r.filename, { type: "video/mp4" }); });
+    } catch (e) { onDone && onDone(); return; }
+    if (navigator.canShare && navigator.canShare({ files: files })) {
+      navigator.share({ files: files, title: "Video Matrix Pro" })
+        .then(function () { onDone && onDone(); })
+        .catch(function () { onDone && onDone(); });
+    } else {
+      els.progressText.textContent = "Seu navegador não suporta salvar vários de uma vez — use o .zip abaixo.";
+      onDone && onDone(false);
+    }
+  }
+
+  function downloadBatchZip(onDone) {
+    els.progressText.textContent = "Compactando lote...";
+    var p2 = window.JSZip ? Promise.resolve() : loadClassicScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js");
+    p2.then(function () {
+      var zip = new window.JSZip();
+      state.pendingBatch.forEach(function (r) { zip.file(r.filename, r.blob); });
+      return zip.generateAsync({ type: "blob" });
+    }).then(function (content) {
+      var url = URL.createObjectURL(content);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = current().name.replace(/[^a-z0-9]+/gi, "-") + "-lote.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      onDone && onDone();
+    }).catch(function (e) {
+      state.error = "Erro ao gerar o zip do lote: " + e.message;
+      renderError();
+    });
+  }
+
+  function finalizeBatch() {
+    state.pendingBatch.forEach(function (r) {
+      try { URL.revokeObjectURL(r.url); } catch (e) {}
+      state.results.push({ name: r.name, filename: r.filename, saved: true });
+    });
+    state.pendingBatch = [];
+    state.awaitingBatch = false;
   }
 
   function renderResults() {
-    if (state.results.length === 0) { els.results.innerHTML = ""; return; }
+    var hasPending = state.pendingBatch && state.pendingBatch.length > 0;
+    if (state.results.length === 0 && !hasPending) { els.results.innerHTML = ""; return; }
     var html = "";
-    var canShareFiles = !!(navigator.canShare);
-    state.results.forEach(function (r, idx) {
-      html += '<div class="result-item"><span>' + escapeHtml(r.name) + '</span>';
-      if (canShareFiles) {
-        html += '<button class="gallery-btn" data-idx="' + idx + '" style="border:1px solid var(--card-border); background:rgba(255,255,255,0.06); color:var(--text); border-radius:8px; padding:5px 10px; font-size:11px; cursor:pointer; margin-left:auto;">📱 Salvar na Galeria</button>';
-      }
-      html += '<a href="' + r.url + '" download="' + escapeHtml(r.filename) + '"' + (canShareFiles ? ' style="margin-left:8px;"' : '') + '>Baixar</a></div>';
+    var isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    var canShareFiles = isMobileDevice && !!(navigator.canShare);
+
+    state.results.forEach(function (r) {
+      html += '<div class="result-item"><span>✓ ' + escapeHtml(r.name) + '</span>' +
+        '<span style="margin-left:auto; color:var(--ok); font-size:11px;">salvo</span></div>';
     });
-    if (!state.processing) {
-      html += '<button class="download-all" id="downloadAllBtn">Baixar todos em .zip</button>';
-      if (canShareFiles) {
-        html += '<button class="download-all" id="galleryAllBtn" style="margin-top:8px; background:linear-gradient(135deg, var(--violet), var(--accent));">📱 Salvar todos na Galeria</button>';
-      }
-    }
-    els.results.innerHTML = html;
-    var allBtn = document.getElementById("downloadAllBtn");
-    if (allBtn) allBtn.addEventListener("click", downloadAllZip);
-    var galleryAllBtn = document.getElementById("galleryAllBtn");
-    if (galleryAllBtn) galleryAllBtn.addEventListener("click", shareAllToGallery);
-    els.results.querySelectorAll(".gallery-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var r = state.results[parseInt(btn.getAttribute("data-idx"), 10)];
-        if (r) shareToGallery(r.blob, r.filename);
+
+    if (hasPending) {
+      state.pendingBatch.forEach(function (r) {
+        html += '<div class="result-item"><span>' + escapeHtml(r.name) + '</span>' +
+          '<a href="' + r.url + '" download="' + escapeHtml(r.filename) + '" style="margin-left:auto;">Baixar</a></div>';
       });
+    }
+
+    if (state.awaitingBatch) {
+      html += '<div style="margin-top:12px; padding:14px; border-radius:12px; background:var(--card); border:1px solid var(--card-border);">' +
+        '<div style="font-size:13px; margin-bottom:10px;">Lote de <b>' + state.pendingBatch.length + '</b> vídeos pronto. Salve (pode tentar mais de uma vez, se precisar) e só depois toque em "Continuar":</div>';
+      if (canShareFiles) {
+        html += '<button class="download-all" id="batchGalleryBtn" style="margin-bottom:8px;">📱 Salvar ' + state.pendingBatch.length + ' na Galeria</button>';
+      }
+      html += '<button class="download-all" id="batchZipBtn" style="background:linear-gradient(135deg, var(--violet), var(--accent)); margin-bottom:8px;">⬇️ Baixar ' + state.pendingBatch.length + ' em .zip</button>';
+      html += '<div style="font-size:11px; color:var(--muted); margin:8px 0;">Confira que os arquivos realmente baixaram/salvaram antes de continuar — depois de continuar, esse lote sai da memória e não pode ser gerado de novo sem refazer o processo.</div>';
+      html += '<button class="download-all" id="batchContinueBtn" style="background:var(--ok); color:#06231C;">✅ Já salvei, continuar</button>';
+      html += '</div>';
+    }
+
+    els.results.innerHTML = html;
+
+    var batchGalleryBtn = document.getElementById("batchGalleryBtn");
+    if (batchGalleryBtn) batchGalleryBtn.addEventListener("click", function () {
+      saveBatchToGallery(function () {});
+    });
+    var batchZipBtn = document.getElementById("batchZipBtn");
+    if (batchZipBtn) batchZipBtn.addEventListener("click", function () {
+      downloadBatchZip(function () {});
+    });
+    var batchContinueBtn = document.getElementById("batchContinueBtn");
+    if (batchContinueBtn) batchContinueBtn.addEventListener("click", function () {
+      batchContinueBtn.disabled = true;
+      finalizeBatch();
+      var resume = state._resumeGeneration;
+      state._resumeGeneration = null;
+      render();
+      if (resume) resume();
     });
   }
 
@@ -749,28 +804,6 @@
     });
   }
 
-  function downloadAllZip() {
-    els.progressText.textContent = "Compactando arquivos...";
-    var p2 = window.JSZip ? Promise.resolve() : loadClassicScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js");
-    p2.then(function () {
-      var zip = new window.JSZip();
-      state.results.forEach(function (r) { zip.file(r.filename, r.blob); });
-      return zip.generateAsync({ type: "blob" });
-    }).then(function (content) {
-      var url = URL.createObjectURL(content);
-      var a = document.createElement("a");
-      a.href = url;
-      a.download = current().name.replace(/[^a-z0-9]+/gi, "-") + "-videos.zip";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      els.progressText.textContent = "Zip baixado!";
-    }).catch(function (e) {
-      state.error = "Erro ao gerar o zip: " + e.message + ". Você ainda pode baixar cada vídeo individualmente acima.";
-      renderError();
-    });
-  }
-
   function generate() {
     var p = current();
     var combos = [];
@@ -791,15 +824,19 @@
 
     state.processing = true;
     state.results = [];
+    state.pendingBatch = [];
+    state.awaitingBatch = false;
+    state._resumeGeneration = null;
     state.error = null;
     logLines = [];
     els.progressWrap.style.display = "block";
     els.progressFill.style.width = "0%";
     render();
 
+    var BATCH_SIZE = 25;
+
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
-      var RECYCLE_EVERY_COMBO = 6;
       var RECYCLE_EVERY_CLIP = 5;
 
       function runCombos() {
@@ -817,40 +854,52 @@
           els.progressText.textContent = "Processando " + (i + 1) + " de " + combos.length + " (" + label + ")...";
           els.progressFill.style.width = Math.round(((i) / combos.length) * 100) + "%";
 
-          function afterMaybeRecycle() {
-            joinClips(currentFF, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, function (status) {
-              els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
-            })
-              .then(function (blob) {
-                var url = URL.createObjectURL(blob);
-                var filename = p.name.replace(/[^a-z0-9]+/gi, "-") + "-" + label + ".mp4";
-                state.results.push({ name: label, filename: filename, url: url, blob: blob });
-                els.progressFill.style.width = Math.round(((i + 1) / combos.length) * 100) + "%";
-                renderResults();
-                i += 1;
-                next();
-              })
-              .catch(function (e) {
-                state.error = "Erro ao processar " + label + ": " + e.message +
-                  ". Isso costuma acontecer quando os clipes têm formatos/resoluções muito diferentes entre si. " +
-                  "Os vídeos já processados continuam disponíveis pra download abaixo.";
-                state.processing = false;
-                render();
-              });
-          }
+          joinClips(currentFF, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, function (status) {
+            els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
+          })
+            .then(function (blob) {
+              var url = URL.createObjectURL(blob);
+              var filename = p.name.replace(/[^a-z0-9]+/gi, "-") + "-" + label + ".mp4";
+              state.pendingBatch.push({ name: label, filename: filename, url: url, blob: blob });
+              els.progressFill.style.width = Math.round(((i + 1) / combos.length) * 100) + "%";
+              i += 1;
 
-          if (i > 0 && i % RECYCLE_EVERY_COMBO === 0) {
-            recycleFFmpeg(function (status) {
-              els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + ": " + status;
-            }).then(function (freshFF) {
-              currentFF = freshFF;
-              afterMaybeRecycle();
-            }).catch(function () {
-              afterMaybeRecycle();
+              var isLastCombo = i >= combos.length;
+              if (state.pendingBatch.length >= BATCH_SIZE || isLastCombo) {
+                state.awaitingBatch = true;
+                state._resumeGeneration = function () {
+                  if (isLastCombo) {
+                    state.processing = false;
+                    els.progressText.textContent = "Concluído: " + combos.length + " vídeos prontos.";
+                    render();
+                  } else {
+                    els.progressText.textContent = "Preparando próximo lote...";
+                    recycleFFmpeg(function (status) {
+                      els.progressText.textContent = status;
+                    }).then(function (freshFF) {
+                      currentFF = freshFF;
+                      next();
+                    }).catch(function (e) {
+                      state.error = "Não foi possível reiniciar o motor de vídeo pra continuar: " + e.message + ". Os vídeos já salvos estão seguros. Tente tocar em \"Gerar vídeos\" de novo pra fazer o restante.";
+                      state.processing = false;
+                      render();
+                    });
+                  }
+                };
+                els.progressText.textContent = "Lote pronto (" + state.pendingBatch.length + " vídeos) — salve pra continuar.";
+                render();
+              } else {
+                renderResults();
+                next();
+              }
+            })
+            .catch(function (e) {
+              state.error = "Erro ao processar " + label + ": " + e.message +
+                ". Isso costuma acontecer quando os clipes têm formatos/resoluções muito diferentes entre si. " +
+                "Os vídeos já processados continuam disponíveis pra download abaixo.";
+              state.processing = false;
+              render();
             });
-          } else {
-            afterMaybeRecycle();
-          }
         }
         next();
       }
