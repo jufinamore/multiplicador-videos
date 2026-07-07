@@ -360,9 +360,19 @@
   function addFiles(field, fileList) {
     var p = current();
     Array.prototype.forEach.call(fileList, function (f) {
-      p[field].push({ id: uid(), file: f });
+      var item = { id: uid(), file: f, stableBlob: null };
+      p[field].push(item);
+      // Lê o arquivo uma vez e guarda uma cópia estável na memória — o Safari no iPhone
+      // às vezes "perde" a referência ao arquivo original depois de reutilizado várias vezes.
+      f.arrayBuffer().then(function (buf) {
+        item.stableBlob = new Blob([buf], { type: f.type || "video/mp4" });
+      }).catch(function () {});
     });
     render();
+  }
+
+  function rawFileFor(item) {
+    return item.stableBlob || item.file;
   }
 
   function removeFile(field, id) {
@@ -776,7 +786,7 @@
     var noiseDb = document.getElementById("silenceSensitivity").value;
     var silenceCache = {};
     function getFile(item) {
-      return (removeSilenceOn && silenceCache[item.id]) ? silenceCache[item.id] : item.file;
+      return (removeSilenceOn && silenceCache[item.id]) ? silenceCache[item.id] : rawFileFor(item);
     }
 
     state.processing = true;
@@ -865,14 +875,14 @@
 
         function afterMaybeRecycle() {
           els.progressText.textContent = "Removendo silêncio: clipe " + (idx + 1) + " de " + uniqueClips.length + "...";
-          removeSilenceFromFile(currentFF, item.file, noiseDb, function (status) {
+          removeSilenceFromFile(currentFF, rawFileFor(item), noiseDb, function (status) {
             els.progressText.textContent = "Clipe " + (idx + 1) + " de " + uniqueClips.length + ": " + status;
           }).then(function (blob) {
             silenceCache[item.id] = blob;
             idx += 1;
             prepNext();
           }).catch(function () {
-            silenceCache[item.id] = item.file;
+            silenceCache[item.id] = rawFileFor(item);
             idx += 1;
             prepNext();
           });
