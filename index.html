@@ -486,6 +486,19 @@
     a.remove();
   }
 
+  function shareAllToGallery() {
+    try {
+      var files = state.results.map(function (r) {
+        return new File([r.blob], r.filename, { type: "video/mp4" });
+      });
+      if (navigator.canShare && navigator.canShare({ files: files })) {
+        navigator.share({ files: files, title: "Video Matrix Pro" }).catch(function () {});
+        return;
+      }
+    } catch (e) {}
+    els.progressText.textContent = "Seu navegador não suporta salvar vários vídeos de uma vez na galeria — use o botão individual em cada vídeo, ou o .zip.";
+  }
+
   function renderResults() {
     if (state.results.length === 0) { els.results.innerHTML = ""; return; }
     var html = "";
@@ -499,10 +512,15 @@
     });
     if (!state.processing) {
       html += '<button class="download-all" id="downloadAllBtn">Baixar todos em .zip</button>';
+      if (canShareFiles) {
+        html += '<button class="download-all" id="galleryAllBtn" style="margin-top:8px; background:linear-gradient(135deg, var(--violet), var(--accent));">📱 Salvar todos na Galeria</button>';
+      }
     }
     els.results.innerHTML = html;
     var allBtn = document.getElementById("downloadAllBtn");
     if (allBtn) allBtn.addEventListener("click", downloadAllZip);
+    var galleryAllBtn = document.getElementById("galleryAllBtn");
+    if (galleryAllBtn) galleryAllBtn.addEventListener("click", shareAllToGallery);
     els.results.querySelectorAll(".gallery-btn").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var r = state.results[parseInt(btn.getAttribute("data-idx"), 10)];
