@@ -783,24 +783,21 @@
     }, Promise.resolve());
 
     return writeAll.then(function () {
-      var listContent = names.map(function (n) { return "file '" + n + "'"; }).join("\n");
-      ff.FS("writeFile", "list.txt", new TextEncoder().encode(listContent));
-      onStatus("copiando (rápido)...");
-      return ff.run("-f", "concat", "-safe", "0", "-i", "list.txt", "-c", "copy", outName).catch(function () { return null; });
-    }).then(function () {
-      var data;
-      try {
-        data = ff.FS("readFile", outName);
-        if (!data || data.length === 0) throw new Error("vazio");
-      } catch (e) {
-        data = null;
-      }
-      if (data) return data;
-      onStatus("recodificando (formatos diferentes, mais lento)...");
-      return ff.run("-f", "concat", "-safe", "0", "-i", "list.txt", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-c:a", "aac", outName)
-        .then(function () { return ff.FS("readFile", outName); });
+      onStatus("montando vídeo...");
+      var inputArgs = [];
+      names.forEach(function (n) { inputArgs.push("-i", n); });
+      var filterParts = names.map(function (_, i) { return "[" + i + ":v:0][" + i + ":a:0]"; }).join("");
+      var filterComplex = filterParts + "concat=n=" + names.length + ":v=1:a=1[outv][outa]";
+      var args = inputArgs.concat([
+        "-filter_complex", filterComplex,
+        "-map", "[outv]", "-map", "[outa]",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+        "-c:a", "aac", "-ar", "44100",
+        outName
+      ]);
+      return ff.run.apply(ff, args).then(function () { return ff.FS("readFile", outName); });
     }).then(function (data) {
-      names.concat(["list.txt", outName]).forEach(function (n) {
+      names.concat([outName]).forEach(function (n) {
         try { ff.FS("unlink", n); } catch (e) {}
       });
       return new Blob([data.buffer], { type: "video/mp4" });
