@@ -212,6 +212,10 @@
   <div class="columns" id="columns"></div>
   <div class="summary" id="summary"></div>
   <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:8px; cursor:pointer;">
+    <input type="checkbox" id="audioSafeToggle" style="accent-color:#FF4D6D;" />
+    Corrigir sincronização de áudio (mais lento — ative só se notar o áudio cortando)
+  </label>
+  <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:8px; cursor:pointer;">
     <input type="checkbox" id="silenceToggle" style="accent-color:#FF4D6D;" />
     Cortar silêncios automaticamente (deixa o processamento mais lento)
   </label>
@@ -770,7 +774,7 @@
     });
   }
 
-  function joinClips(ff, files, outName, onStatus) {
+  function joinClips(ff, files, outName, audioSafeMode, onStatus) {
     var FFmpegUtil = window.FFmpeg;
     var names = files.map(function (_, i) { return "in" + i + ".mp4"; });
 
@@ -782,22 +786,48 @@
       });
     }, Promise.resolve());
 
+    if (audioSafeMode) {
+      return writeAll.then(function () {
+        onStatus("montando vídeo (modo seguro de áudio)...");
+        var inputArgs = [];
+        names.forEach(function (n) { inputArgs.push("-i", n); });
+        var filterParts = names.map(function (_, i) { return "[" + i + ":v:0][" + i + ":a:0]"; }).join("");
+        var filterComplex = filterParts + "concat=n=" + names.length + ":v=1:a=1[outv][outa]";
+        var args = inputArgs.concat([
+          "-filter_complex", filterComplex,
+          "-map", "[outv]", "-map", "[outa]",
+          "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+          "-c:a", "aac", "-ar", "44100",
+          outName
+        ]);
+        return ff.run.apply(ff, args).then(function () { return ff.FS("readFile", outName); });
+      }).then(function (data) {
+        names.concat([outName]).forEach(function (n) {
+          try { ff.FS("unlink", n); } catch (e) {}
+        });
+        return new Blob([data.buffer], { type: "video/mp4" });
+      });
+    }
+
     return writeAll.then(function () {
-      onStatus("montando vídeo...");
-      var inputArgs = [];
-      names.forEach(function (n) { inputArgs.push("-i", n); });
-      var filterParts = names.map(function (_, i) { return "[" + i + ":v:0][" + i + ":a:0]"; }).join("");
-      var filterComplex = filterParts + "concat=n=" + names.length + ":v=1:a=1[outv][outa]";
-      var args = inputArgs.concat([
-        "-filter_complex", filterComplex,
-        "-map", "[outv]", "-map", "[outa]",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
-        "-c:a", "aac", "-ar", "44100",
-        outName
-      ]);
-      return ff.run.apply(ff, args).then(function () { return ff.FS("readFile", outName); });
+      var listContent = names.map(function (n) { return "file '" + n + "'"; }).join("\n");
+      ff.FS("writeFile", "list.txt", new TextEncoder().encode(listContent));
+      onStatus("copiando (rápido)...");
+      return ff.run("-f", "concat", "-safe", "0", "-i", "list.txt", "-c", "copy", outName).catch(function () { return null; });
+    }).then(function () {
+      var data;
+      try {
+        data = ff.FS("readFile", outName);
+        if (!data || data.length === 0) throw new Error("vazio");
+      } catch (e) {
+        data = null;
+      }
+      if (data) return data;
+      onStatus("recodificando (formatos diferentes, mais lento)...");
+      return ff.run("-f", "concat", "-safe", "0", "-i", "list.txt", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-c:a", "aac", "-ar", "44100", outName)
+        .then(function () { return ff.FS("readFile", outName); });
     }).then(function (data) {
-      names.concat([outName]).forEach(function (n) {
+      names.concat(["list.txt", outName]).forEach(function (n) {
         try { ff.FS("unlink", n); } catch (e) {}
       });
       return new Blob([data.buffer], { type: "video/mp4" });
@@ -816,6 +846,7 @@
     });
 
     var removeSilenceOn = document.getElementById("silenceToggle").checked;
+    var audioSafeMode = document.getElementById("audioSafeToggle").checked;
     var noiseDb = document.getElementById("silenceSensitivity").value;
     var silenceCache = {};
     function getFile(item) {
@@ -854,7 +885,7 @@
           els.progressText.textContent = "Processando " + (i + 1) + " de " + combos.length + " (" + label + ")...";
           els.progressFill.style.width = Math.round(((i) / combos.length) * 100) + "%";
 
-          joinClips(currentFF, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, function (status) {
+          joinClips(currentFF, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, audioSafeMode, function (status) {
             els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
           })
             .then(function (blob) {
