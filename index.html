@@ -364,19 +364,26 @@
   function addFiles(field, fileList) {
     var p = current();
     Array.prototype.forEach.call(fileList, function (f) {
-      var item = { id: uid(), file: f, stableBlob: null };
-      p[field].push(item);
-      // Lê o arquivo uma vez e guarda uma cópia estável na memória — o Safari no iPhone
-      // às vezes "perde" a referência ao arquivo original depois de reutilizado várias vezes.
-      f.arrayBuffer().then(function (buf) {
-        item.stableBlob = new Blob([buf], { type: f.type || "video/mp4" });
-      }).catch(function () {});
+      p[field].push({ id: uid(), file: f, stableBlob: null });
     });
     render();
   }
 
   function rawFileFor(item) {
     return item.stableBlob || item.file;
+  }
+
+  // Lê e estabiliza UM arquivo por vez (sob demanda), em vez de todos na seleção.
+  // Isso evita estourar a memória quando a pessoa seleciona muitos vídeos grandes,
+  // mantendo a proteção contra o Safari "perder" a referência do arquivo original.
+  function stabilizeFile(item) {
+    if (item.stableBlob) return Promise.resolve(item.stableBlob);
+    return item.file.arrayBuffer().then(function (buf) {
+      item.stableBlob = new Blob([buf], { type: item.file.type || "video/mp4" });
+      return item.stableBlob;
+    }).catch(function () {
+      return item.file;
+    });
   }
 
   function removeFile(field, id) {
@@ -935,11 +942,6 @@
         next();
       }
 
-      if (!removeSilenceOn) {
-        runCombos();
-        return;
-      }
-
       var uniqueClips = [];
       var seen = {};
       [p.hooks, p.corpos, p.ctas].forEach(function (list) {
@@ -954,17 +956,25 @@
         var item = uniqueClips[idx];
 
         function afterMaybeRecycle() {
-          els.progressText.textContent = "Removendo silêncio: clipe " + (idx + 1) + " de " + uniqueClips.length + "...";
-          removeSilenceFromFile(currentFF, rawFileFor(item), noiseDb, function (status) {
-            els.progressText.textContent = "Clipe " + (idx + 1) + " de " + uniqueClips.length + ": " + status;
-          }).then(function (blob) {
-            silenceCache[item.id] = blob;
-            idx += 1;
-            prepNext();
-          }).catch(function () {
-            silenceCache[item.id] = rawFileFor(item);
-            idx += 1;
-            prepNext();
+          els.progressText.textContent = "Preparando clipe " + (idx + 1) + " de " + uniqueClips.length + "...";
+          stabilizeFile(item).then(function () {
+            if (!removeSilenceOn) {
+              idx += 1;
+              prepNext();
+              return;
+            }
+            els.progressText.textContent = "Removendo silêncio: clipe " + (idx + 1) + " de " + uniqueClips.length + "...";
+            removeSilenceFromFile(currentFF, rawFileFor(item), noiseDb, function (status) {
+              els.progressText.textContent = "Clipe " + (idx + 1) + " de " + uniqueClips.length + ": " + status;
+            }).then(function (blob) {
+              silenceCache[item.id] = blob;
+              idx += 1;
+              prepNext();
+            }).catch(function () {
+              silenceCache[item.id] = rawFileFor(item);
+              idx += 1;
+              prepNext();
+            });
           });
         }
 
