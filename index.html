@@ -255,16 +255,31 @@
   var MASTER_CODE = "JUFAMILIA2026";
   // A verificação dos demais códigos acontece no servidor (função verify-code),
   // ligada automaticamente às compras aprovadas na Hotmart.
-  var GATE_STORAGE_KEY = "vmp_unlocked";
+  // Agora o código é guardado (não só um "desbloqueado: sim") e reconferido
+  // toda vez que o app é aberto — se a compra for reembolsada/cancelada,
+  // o acesso é revogado mesmo em quem já tinha entrado antes.
+  var GATE_CODE_KEY = "vmp_code";
 
   var gateEl = document.getElementById("gate");
   var gateInput = document.getElementById("gateInput");
   var gateBtn = document.getElementById("gateBtn");
   var gateErr = document.getElementById("gateErr");
 
-  function unlock() {
-    try { localStorage.setItem(GATE_STORAGE_KEY, "1"); } catch (e) {}
+  function unlock(code) {
+    try { localStorage.setItem(GATE_CODE_KEY, code); } catch (e) {}
     gateEl.classList.add("hidden");
+  }
+
+  function showGate(message) {
+    if (message) gateErr.textContent = message;
+    gateEl.classList.remove("hidden");
+  }
+
+  function verifyWithServer(code) {
+    return fetch("/.netlify/functions/verify-code?code=" + encodeURIComponent(code))
+      .then(function (r) { return r.json(); })
+      .then(function (data) { return { ok: true, valid: !!(data && data.valid) }; })
+      .catch(function () { return { ok: false, valid: false }; });
   }
 
   function tryUnlock() {
@@ -272,7 +287,7 @@
     if (!entered) return;
 
     if (entered === MASTER_CODE.toUpperCase()) {
-      unlock();
+      unlock(entered);
       return;
     }
 
@@ -280,28 +295,41 @@
     gateBtn.textContent = "Verificando...";
     gateErr.textContent = "";
 
-    fetch("/.netlify/functions/verify-code?code=" + encodeURIComponent(entered))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        gateBtn.disabled = false;
-        gateBtn.textContent = "Entrar";
-        if (data && data.valid) {
-          unlock();
-        } else {
-          gateErr.textContent = "Código incorreto ou expirado. Confira e tente de novo.";
-        }
-      })
-      .catch(function () {
-        gateBtn.disabled = false;
-        gateBtn.textContent = "Entrar";
+    verifyWithServer(entered).then(function (result) {
+      gateBtn.disabled = false;
+      gateBtn.textContent = "Entrar";
+      if (result.valid) {
+        unlock(entered);
+      } else if (result.ok) {
+        gateErr.textContent = "Código incorreto ou expirado. Confira e tente de novo.";
+      } else {
         gateErr.textContent = "Não foi possível verificar agora. Confira sua internet e tente de novo.";
-      });
+      }
+    });
   }
 
-  var alreadyUnlocked = false;
-  try { alreadyUnlocked = localStorage.getItem(GATE_STORAGE_KEY) === "1"; } catch (e) {}
-  if (alreadyUnlocked) {
+  var storedCode = null;
+  try { storedCode = localStorage.getItem(GATE_CODE_KEY); } catch (e) {}
+
+  if (storedCode && storedCode.toUpperCase() === MASTER_CODE.toUpperCase()) {
+    // Código universal — sempre válido, não depende do servidor.
     gateEl.classList.add("hidden");
+  } else if (storedCode) {
+    // Reconfirma com o servidor antes de liberar — se a compra foi
+    // cancelada/reembolsada, o acesso é revogado aqui.
+    gateEl.classList.add("hidden"); // libera otimisticamente pra não travar sem internet
+    verifyWithServer(storedCode).then(function (result) {
+      if (result.ok && !result.valid) {
+        try { localStorage.removeItem(GATE_CODE_KEY); } catch (e) {}
+        showGate("Seu acesso não está mais ativo. Se você acha que isso é um engano, entre em contato.");
+      }
+      // Se a verificação falhar por falta de internet (result.ok === false),
+      // mantém liberado — o app funciona offline por design.
+    });
+    gateBtn.addEventListener("click", tryUnlock);
+    gateInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") tryUnlock();
+    });
   } else {
     gateBtn.addEventListener("click", tryUnlock);
     gateInput.addEventListener("keydown", function (e) {
