@@ -198,8 +198,10 @@
   <div class="gate" id="gate">
     <h2>Video Matrix Pro</h2>
     <p>Digite o código da sua compra (o código de transação que veio no seu recibo da Hotmart).</p>
-    <input type="password" id="gateInput" placeholder="Código da transação (ex: HP123456789012)" autocomplete="off" />
-    <button id="gateBtn">Entrar</button>
+<div style="position:relative; width:100%; max-width:280px; margin:0 auto 12px;">
+  <input type="password" id="gateInput" placeholder="Código da transação (ex: HP123456789012)" autocomplete="off" style="width:100%; padding-right:44px; padding:14px 44px 14px 16px; border-radius:12px; border:1px solid var(--card-border); background:rgba(255,255,255,0.06); color:#fff; font-size:15px; text-align:center;" />
+  <button type="button" id="gateToggleBtn" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:18px; padding:4px; color:#fff;">👁</button>
+</div>    <button id="gateBtn">Entrar</button>
     <div class="err" id="gateErr"></div>
   </div>
 
@@ -1051,5 +1053,24 @@
   }
 })();
 </script>
+
+
+<script>
+  document.getElementById("gateToggleBtn").addEventListener("click", function () {
+    var input = document.getElementById("gateInput");
+    var btn = this;
+    if (input.type === "password") {
+      input.type = "text";
+      btn.textContent = "🙈";
+    } else {
+      input.type = "password";
+      btn.textContent = "👁";
+    }
+  });
+</script>
+
+
+
+
 </body>
 </html>
