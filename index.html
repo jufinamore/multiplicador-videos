@@ -199,18 +199,16 @@
     <h2>Video Matrix Pro</h2>
     <p>Digite o código da sua compra (o código de transação que veio no seu recibo da Hotmart).</p>
 
-    
-<div style="display:flex; align-items:center; gap:8px; width:100%; max-width:280px; margin:0 auto 12px;">
-  <input type="password" id="gateInput" placeholder="Código da transação (ex: HP123456789012)" autocomplete="off" style="flex:1; min-width:0; padding:14px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff; font-size:15px; text-align:center; outline:none;" />
-  <button type="button" id="gateToggleBtn" style="flex-shrink:0; background:none; border:none; cursor:pointer; padding:6px; display:flex; align-items:center; justify-content:center;">
-    <svg id="gateEyeIcon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-      <circle cx="12" cy="12" r="3"></circle>
-    </svg>
-  </button>
-</div>
-    
-    
+    <div style="display:flex; align-items:center; gap:8px; width:100%; max-width:280px; margin:0 auto 12px;">
+      <input type="password" id="gateInput" placeholder="Código da transação (ex: HP123456789012)" autocomplete="off" style="flex:1 1 auto; width:auto; max-width:none; min-width:0; padding:14px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff; font-size:15px; text-align:center; outline:none; margin:0;" />
+      <button type="button" id="gateToggleBtn" style="flex:0 0 auto; width:auto; max-width:none; background:none; border:none; box-shadow:none; padding:6px; margin:0; display:flex; align-items:center; justify-content:center; cursor:pointer;">
+        <svg id="gateEyeIcon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      </button>
+    </div>
+
     <button id="gateBtn">Entrar</button>
     <div class="err" id="gateErr"></div>
   </div>
@@ -413,9 +411,6 @@
     return item.stableBlob || item.file;
   }
 
-  // Lê e estabiliza UM arquivo por vez (sob demanda), em vez de todos na seleção.
-  // Isso evita estourar a memória quando a pessoa seleciona muitos vídeos grandes,
-  // mantendo a proteção contra o Safari "perder" a referência do arquivo original.
   function stabilizeFile(item) {
     if (item.stableBlob) return Promise.resolve(item.stableBlob);
     return item.file.arrayBuffer().then(function (buf) {
@@ -537,7 +532,6 @@
         return;
       }
     } catch (e) {}
-    // Fallback: navegador não suporta compartilhar arquivo — usa o download normal
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
@@ -1064,7 +1058,6 @@
 })();
 </script>
 
-
 <script>
   document.getElementById("gateToggleBtn").addEventListener("click", function () {
     var input = document.getElementById("gateInput");
@@ -1078,9 +1071,6 @@
     }
   });
 </script>
-
-
-
 
 </body>
 </html>
