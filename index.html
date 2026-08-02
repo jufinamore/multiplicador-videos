@@ -225,8 +225,8 @@
   <div class="columns" id="columns"></div>
   <div class="summary" id="summary"></div>
   <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:8px; cursor:pointer;">
-    <input type="checkbox" id="audioSafeToggle" style="accent-color:#FF4D6D;" />
-    Corrigir sincronização de áudio (mais lento — ative só se notar o áudio cortando)
+    <input type="checkbox" id="audioSafeToggle" checked style="accent-color:#FF4D6D;" />
+    Corrigir sincronização de áudio (recomendado — deixe marcado pra evitar áudio atrasado/cortando)
   </label>
   <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:8px; cursor:pointer;">
     <input type="checkbox" id="silenceToggle" style="accent-color:#FF4D6D;" />
@@ -919,7 +919,7 @@
 
       function runCombos() {
         var i = 0;
-        var RECYCLE_EVERY_COMBO = 3;
+        var RECYCLE_EVERY_COMBO = 1;
 
         function next() {
           if (i >= combos.length) {
