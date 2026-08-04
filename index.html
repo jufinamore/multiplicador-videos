@@ -901,7 +901,8 @@
 
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
-      var RECYCLE_EVERY_CLIP = 5;
+      var RECYCLE_EVERY_CLIP = isMobile ? 5 : 15;      // prep: desktop recicla bem menos
+      var RECYCLE_EVERY_COMBO = isMobile ? 2 : 10;     // combos: desktop 10x menos recycles = muito mais rápido
 
       function runCombos() {
         var i = 0;
@@ -967,7 +968,7 @@
               });
           }
 
-          if (i > 0 && i % 1 === 0) {
+          if (i > 0 && i % RECYCLE_EVERY_COMBO === 0) {
             els.progressText.textContent = "Liberando memória antes do vídeo " + (i + 1) + "...";
             recycleFFmpeg(function (status) {
               els.progressText.textContent = status;
