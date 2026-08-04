@@ -897,7 +897,7 @@
     render();
 
     var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    var BATCH_SIZE = isMobile ? (combos.length > 80 ? 6 : 10) : combos.length; // desktop: gera tudo de uma vez
+    var BATCH_SIZE = isMobile ? (combos.length > 80 ? 6 : 10) : 15; // desktop: lotes de 15; mobile: lotes menores
 
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
