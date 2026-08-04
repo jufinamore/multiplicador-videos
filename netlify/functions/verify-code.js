@@ -9,10 +9,7 @@ function accessCodesStore() {
 }
 
 // ---------- Códigos de teste (beta) ----------
-// 15 códigos únicos, válidos até a data abaixo. Depois disso, o acesso
-// é revogado automaticamente (o app já reconfirma o código a cada abertura).
-// Pra trocar a data de expiração ou os códigos, é só editar aqui e publicar de novo.
-var TRIAL_EXPIRES_AT = "2026-08-07T23:59:59-03:00"; // válido até 07/08/2026
+var TRIAL_EXPIRES_AT = "2026-08-14T23:59:59-03:00"; // válido até 14/08/2026
 var TRIAL_CODES = [
   "EKMQ0X88C", "GZHEYZ7NE", "39X3FI61R", "745K75BHV", "UUSTEPS75",
   "02NER2ZOZ", "A5Z44HNNP", "HH6W205CL", "91H48COU8",
@@ -49,6 +46,7 @@ exports.handler = async function (event) {
   }
 
   code = code.trim().toUpperCase();
+
   if (!code) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ valid: false, error: "missing code" }) };
   }
