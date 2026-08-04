@@ -10,15 +10,25 @@ function accessCodesStore() {
 
 // Eventos que LIBERAM acesso
 const APPROVED_EVENTS = ["PURCHASE_APPROVED", "PURCHASE_COMPLETE"];
+
 // Eventos que REVOGAM acesso
-const REVOKE_EVENTS = ["PURCHASE_CANCELED", "PURCHASE_REFUNDED", "PURCHASE_CHARGEBACK", "PURCHASE_EXPIRED", "PURCHASE_PROTEST"];
+const REVOKE_EVENTS = [
+  "PURCHASE_CANCELED",
+  "PURCHASE_REFUNDED",
+  "PURCHASE_CHARGEBACK",
+  "PURCHASE_EXPIRED",
+  "PURCHASE_PROTEST",
+  "SUBSCRIPTION_CANCELLATION"
+];
+
+// Eventos que RENOVAM acesso (assinatura mensal)
+const RENEWAL_EVENTS = ["SUBSCRIPTION_CHARGE_SUCCESS"];
 
 exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method not allowed" };
   }
 
-  // Confere se a notificação realmente veio da Hotmart
   var receivedToken = event.headers["x-hotmart-hottok"] || event.headers["X-HOTMART-HOTTOK"];
   if (!receivedToken || receivedToken !== process.env.HOTMART_HOTTOK) {
     return { statusCode: 401, body: "Hottok inválido" };
@@ -41,7 +51,6 @@ exports.handler = async function (event) {
   var buyerName = buyer.name || "desconhecido";
 
   if (!transaction) {
-    // Não veio um código de transação identificável — ignora sem erro.
     return { statusCode: 200, body: "Sem transaction id, ignorado" };
   }
 
@@ -56,10 +65,20 @@ exports.handler = async function (event) {
       event: eventType,
       updatedAt: new Date().toISOString()
     }));
+  } else if (RENEWAL_EVENTS.indexOf(eventType) !== -1) {
+    // Renovação mensal — atualiza o registro mantendo acesso ativo
+    var existing = await store.get(codeKey);
+    var current = existing ? JSON.parse(existing) : { email: buyerEmail, name: buyerName };
+    await store.set(codeKey, JSON.stringify({
+      ...current,
+      status: "active",
+      event: eventType,
+      renewedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }));
   } else if (REVOKE_EVENTS.indexOf(eventType) !== -1) {
     await store.delete(codeKey);
   }
-  // Outros eventos (ex: aguardando pagamento) são ignorados de propósito.
 
   return { statusCode: 200, body: "ok" };
 };
