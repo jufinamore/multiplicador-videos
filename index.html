@@ -225,7 +225,7 @@
   <div class="columns" id="columns"></div>
   <div class="summary" id="summary"></div>
   <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:8px; cursor:pointer;">
-    <input type="checkbox" id="audioSafeToggle" checked style="accent-color:#FF4D6D;" />
+    <input type="checkbox" id="audioSafeToggle" style="accent-color:#FF4D6D;" />
     Corrigir sincronização de áudio (recomendado — deixe marcado pra evitar áudio atrasado/cortando)
   </label>
   <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:8px; cursor:pointer;">
@@ -341,94 +341,7 @@
   }
 })();
 
-// ─── API RENDER (fallback para ffmpeg local se falhar) ───────────────────────
-(function () {
-  "use strict";
 
-  var API_URL = "https://vmp-api.onrender.com";
-  var API_TIMEOUT_MS = 30000;
-
-  function uploadClipToAPI(file) {
-    return new Promise(function (resolve, reject) {
-      var formData = new FormData();
-      formData.append("video", file);
-      var xhr = new XMLHttpRequest();
-      xhr.open("POST", API_URL + "/enviar-clipe");
-      xhr.timeout = API_TIMEOUT_MS;
-      xhr.onload = function () {
-        if (xhr.status === 200) {
-          try { resolve(JSON.parse(xhr.responseText).fileId); }
-          catch (e) { reject(new Error("Resposta inválida da API")); }
-        } else { reject(new Error("API retornou status " + xhr.status)); }
-      };
-      xhr.onerror = function () { reject(new Error("Erro de conexão com a API")); };
-      xhr.ontimeout = function () { reject(new Error("API demorou demais")); };
-      xhr.send(formData);
-    });
-  }
-
-  function createTaskOnAPI(combinations) {
-    return fetch(API_URL + "/criar-tarefa", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ combinations: combinations })
-    }).then(function (r) {
-      if (!r.ok) throw new Error("API retornou " + r.status);
-      return r.json();
-    });
-  }
-
-  function pollTask(taskId, onProgress) {
-    return new Promise(function (resolve, reject) {
-      var maxAttempts = 300;
-      var attempts = 0;
-      function check() {
-        attempts++;
-        if (attempts > maxAttempts) { reject(new Error("Timeout aguardando processamento")); return; }
-        fetch(API_URL + "/tarefa/" + taskId)
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            onProgress && onProgress(data.completed, data.total);
-            if (data.status === "done") { resolve(data); }
-            else if (data.status === "error") { reject(new Error("Erro no servidor")); }
-            else { setTimeout(check, 1000); }
-          })
-          .catch(function () { setTimeout(check, 2000); });
-      }
-      check();
-    });
-  }
-
-  function downloadResultFromAPI(filename) {
-    return fetch(API_URL + "/download/" + filename)
-      .then(function (r) {
-        if (!r.ok) throw new Error("Erro ao baixar resultado");
-        return r.blob();
-      });
-  }
-
-  window.processComboViaAPI = function (hookFile, bodyFile, ctaFile, onStatus) {
-    onStatus && onStatus("enviando para o servidor...");
-    return Promise.all([
-      uploadClipToAPI(hookFile),
-      uploadClipToAPI(bodyFile),
-      uploadClipToAPI(ctaFile)
-    ]).then(function (ids) {
-      onStatus && onStatus("criando tarefa no servidor...");
-      return createTaskOnAPI([{ hook: ids[0], body: ids[1], cta: ids[2] }]);
-    }).then(function (task) {
-      onStatus && onStatus("processando no servidor...");
-      return pollTask(task.taskId, function (done, total) {
-        onStatus && onStatus("processando no servidor (" + done + "/" + total + ")...");
-      });
-    }).then(function (taskResult) {
-      var result = taskResult.results && taskResult.results[0];
-      if (!result || result.status !== "ok") throw new Error("Servidor não retornou resultado válido");
-      onStatus && onStatus("baixando resultado...");
-      return downloadResultFromAPI(result.file);
-    });
-  };
-})();
 
 (function () {
   "use strict";
@@ -951,18 +864,7 @@
     });
   }
 
-  // ─── Processa combo: tenta API, cai para ffmpeg se falhar ────────────────
-  function processComboWithFallback(ff, hookFile, bodyFile, ctaFile, outName, audioSafeMode, onStatus) {
-    if (window.processComboViaAPI) {
-      return window.processComboViaAPI(hookFile, bodyFile, ctaFile, onStatus)
-        .catch(function (apiErr) {
-          logMsg("API indisponível (" + apiErr.message + ") — processando localmente...");
-          onStatus && onStatus("processando localmente (fallback)...");
-          return joinClips(ff, [hookFile, bodyFile, ctaFile], outName, audioSafeMode, onStatus);
-        });
-    }
-    return joinClips(ff, [hookFile, bodyFile, ctaFile], outName, audioSafeMode, onStatus);
-  }
+
 
   function generate() {
     var p = current();
@@ -1018,8 +920,7 @@
             els.progressText.textContent = "Processando " + (i + 1) + " de " + combos.length + " (" + label + ")...";
             els.progressFill.style.width = Math.round(((i) / combos.length) * 100) + "%";
 
-            // ← ÚNICA mudança aqui: usa processComboWithFallback em vez de joinClips
-            processComboWithFallback(currentFF, getFile(combo.h), getFile(combo.c), getFile(combo.t), outName, audioSafeMode, function (status) {
+            joinClips(currentFF, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, audioSafeMode, function (status) {
               els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
             })
               .then(function (blob) {
