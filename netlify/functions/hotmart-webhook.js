@@ -8,10 +8,28 @@ function accessCodesStore() {
   });
 }
 
-// Eventos que LIBERAM acesso
-const APPROVED_EVENTS = ["PURCHASE_APPROVED", "PURCHASE_COMPLETE"];
+// IDs dos produtos na Hotmart
+const PRODUCT_ANNUAL_ID = 8068529;
+const PRODUCT_MONTHLY_ID = 8249853;
 
-// Eventos que REVOGAM acesso
+function getPlan(productId) {
+  if (productId === PRODUCT_ANNUAL_ID) return "annual";
+  if (productId === PRODUCT_MONTHLY_ID) return "monthly";
+  return "unknown";
+}
+
+function getExpiresAt(plan) {
+  var now = new Date();
+  if (plan === "annual") {
+    var exp = new Date(now);
+    exp.setFullYear(exp.getFullYear() + 1);
+    return exp.toISOString();
+  }
+  // Mensal não tem expiração fixa — controlado pela renovação/cancelamento
+  return null;
+}
+
+const APPROVED_EVENTS = ["PURCHASE_APPROVED", "PURCHASE_COMPLETE"];
 const REVOKE_EVENTS = [
   "PURCHASE_CANCELED",
   "PURCHASE_REFUNDED",
@@ -20,8 +38,6 @@ const REVOKE_EVENTS = [
   "PURCHASE_PROTEST",
   "SUBSCRIPTION_CANCELLATION"
 ];
-
-// Eventos que RENOVAM acesso (assinatura mensal)
 const RENEWAL_EVENTS = ["SUBSCRIPTION_CHARGE_SUCCESS"];
 
 exports.handler = async function (event) {
@@ -45,30 +61,35 @@ exports.handler = async function (event) {
   var data = payload.data || {};
   var purchase = data.purchase || {};
   var buyer = data.buyer || {};
+  var product = data.product || {};
 
   var transaction = purchase.transaction || payload.transaction || null;
   var buyerEmail = buyer.email || payload.email || "desconhecido";
   var buyerName = buyer.name || "desconhecido";
+  var productId = product.id || null;
 
   if (!transaction) {
     return { statusCode: 200, body: "Sem transaction id, ignorado" };
   }
 
+  var plan = getPlan(productId);
   var store = accessCodesStore();
   var codeKey = String(transaction).trim().toUpperCase();
 
   if (APPROVED_EVENTS.indexOf(eventType) !== -1) {
+    var expiresAt = getExpiresAt(plan);
     await store.set(codeKey, JSON.stringify({
       email: buyerEmail,
       name: buyerName,
       status: "active",
+      plan: plan,
+      expiresAt: expiresAt,
       event: eventType,
       updatedAt: new Date().toISOString()
     }));
   } else if (RENEWAL_EVENTS.indexOf(eventType) !== -1) {
-    // Renovação mensal — atualiza o registro mantendo acesso ativo
     var existing = await store.get(codeKey);
-    var current = existing ? JSON.parse(existing) : { email: buyerEmail, name: buyerName };
+    var current = existing ? JSON.parse(existing) : { email: buyerEmail, name: buyerName, plan: plan };
     await store.set(codeKey, JSON.stringify({
       ...current,
       status: "active",
