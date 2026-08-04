@@ -218,7 +218,7 @@
 
   <div class="eyebrow">Multiplicador de conteúdo</div>
   <h1>Video Matrix Pro</h1>
-  <div class="subtitle">Sobe os clipes direto da memória da sua galeria. Tudo roda aqui no navegador — nada é enviado pra nenhum servidor. O sistema une os clipes e devolve os vídeos prontos pra baixar.</div>
+  <div class="subtitle">Sobe os clipes direto da memória da sua galeria. O sistema une os clipes e devolve os vídeos prontos pra baixar.</div>
 
   <div class="tabs" id="tabs"></div>
   <div class="product-name-row" id="productNameRow"></div>
@@ -265,15 +265,7 @@
   "use strict";
 
   // ---------- Access gate ----------
-  // Código universal (não depende de compra na Hotmart) — use para você mesma
-  // ou para compartilhar com quem quiser, sem precisar de cupom/venda.
-  // Troque o valor abaixo por algo só seu.
   var MASTER_CODE = "JUFAMILIA2026";
-  // A verificação dos demais códigos acontece no servidor (função verify-code),
-  // ligada automaticamente às compras aprovadas na Hotmart.
-  // Agora o código é guardado (não só um "desbloqueado: sim") e reconferido
-  // toda vez que o app é aberto — se a compra for reembolsada/cancelada,
-  // o acesso é revogado mesmo em quem já tinha entrado antes.
   var GATE_CODE_KEY = "vmp_code";
 
   var gateEl = document.getElementById("gate");
@@ -328,19 +320,14 @@
   try { storedCode = localStorage.getItem(GATE_CODE_KEY); } catch (e) {}
 
   if (storedCode && storedCode.toUpperCase() === MASTER_CODE.toUpperCase()) {
-    // Código universal — sempre válido, não depende do servidor.
     gateEl.classList.add("hidden");
   } else if (storedCode) {
-    // Reconfirma com o servidor antes de liberar — se a compra foi
-    // cancelada/reembolsada, o acesso é revogado aqui.
-    gateEl.classList.add("hidden"); // libera otimisticamente pra não travar sem internet
+    gateEl.classList.add("hidden");
     verifyWithServer(storedCode).then(function (result) {
       if (result.ok && !result.valid) {
         try { localStorage.removeItem(GATE_CODE_KEY); } catch (e) {}
         showGate("Seu acesso não está mais ativo. Se você acha que isso é um engano, entre em contato.");
       }
-      // Se a verificação falhar por falta de internet (result.ok === false),
-      // mantém liberado — o app funciona offline por design.
     });
     gateBtn.addEventListener("click", tryUnlock);
     gateInput.addEventListener("keydown", function (e) {
@@ -352,6 +339,95 @@
       if (e.key === "Enter") tryUnlock();
     });
   }
+})();
+
+// ─── API RENDER (fallback para ffmpeg local se falhar) ───────────────────────
+(function () {
+  "use strict";
+
+  var API_URL = "https://vmp-api.onrender.com";
+  var API_TIMEOUT_MS = 30000;
+
+  function uploadClipToAPI(file) {
+    return new Promise(function (resolve, reject) {
+      var formData = new FormData();
+      formData.append("video", file);
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", API_URL + "/enviar-clipe");
+      xhr.timeout = API_TIMEOUT_MS;
+      xhr.onload = function () {
+        if (xhr.status === 200) {
+          try { resolve(JSON.parse(xhr.responseText).fileId); }
+          catch (e) { reject(new Error("Resposta inválida da API")); }
+        } else { reject(new Error("API retornou status " + xhr.status)); }
+      };
+      xhr.onerror = function () { reject(new Error("Erro de conexão com a API")); };
+      xhr.ontimeout = function () { reject(new Error("API demorou demais")); };
+      xhr.send(formData);
+    });
+  }
+
+  function createTaskOnAPI(combinations) {
+    return fetch(API_URL + "/criar-tarefa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ combinations: combinations })
+    }).then(function (r) {
+      if (!r.ok) throw new Error("API retornou " + r.status);
+      return r.json();
+    });
+  }
+
+  function pollTask(taskId, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var maxAttempts = 300;
+      var attempts = 0;
+      function check() {
+        attempts++;
+        if (attempts > maxAttempts) { reject(new Error("Timeout aguardando processamento")); return; }
+        fetch(API_URL + "/tarefa/" + taskId)
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            onProgress && onProgress(data.completed, data.total);
+            if (data.status === "done") { resolve(data); }
+            else if (data.status === "error") { reject(new Error("Erro no servidor")); }
+            else { setTimeout(check, 1000); }
+          })
+          .catch(function () { setTimeout(check, 2000); });
+      }
+      check();
+    });
+  }
+
+  function downloadResultFromAPI(filename) {
+    return fetch(API_URL + "/download/" + filename)
+      .then(function (r) {
+        if (!r.ok) throw new Error("Erro ao baixar resultado");
+        return r.blob();
+      });
+  }
+
+  window.processComboViaAPI = function (hookFile, bodyFile, ctaFile, onStatus) {
+    onStatus && onStatus("enviando para o servidor...");
+    return Promise.all([
+      uploadClipToAPI(hookFile),
+      uploadClipToAPI(bodyFile),
+      uploadClipToAPI(ctaFile)
+    ]).then(function (ids) {
+      onStatus && onStatus("criando tarefa no servidor...");
+      return createTaskOnAPI([{ hook: ids[0], body: ids[1], cta: ids[2] }]);
+    }).then(function (task) {
+      onStatus && onStatus("processando no servidor...");
+      return pollTask(task.taskId, function (done, total) {
+        onStatus && onStatus("processando no servidor (" + done + "/" + total + ")...");
+      });
+    }).then(function (taskResult) {
+      var result = taskResult.results && taskResult.results[0];
+      if (!result || result.status !== "ok") throw new Error("Servidor não retornou resultado válido");
+      onStatus && onStatus("baixando resultado...");
+      return downloadResultFromAPI(result.file);
+    });
+  };
 })();
 
 (function () {
@@ -770,11 +846,10 @@
       });
 
       if (!duration || silences.length === 0) {
-        logMsg("Nenhum silêncio detectado nesse clipe (duração: " + (duration ? duration.toFixed(2) + "s" : "desconhecida") + "). Experimente uma sensibilidade mais agressiva.");
+        logMsg("Nenhum silêncio detectado nesse clipe.");
         cleanup([inputName]);
         return file;
       }
-      logMsg(silences.length + " trecho(s) de silêncio detectado(s) nesse clipe.");
 
       var pad = 0.12;
       var segments = [];
@@ -789,10 +864,7 @@
 
       var noRealCut = segments.length === 0 ||
         (segments.length === 1 && segments[0][0] < 0.05 && segments[0][1] > duration - 0.05);
-      if (noRealCut) {
-        cleanup([inputName]);
-        return file;
-      }
+      if (noRealCut) { cleanup([inputName]); return file; }
 
       onStatus && onStatus("removendo silêncio...");
 
@@ -866,9 +938,7 @@
       try {
         data = ff.FS("readFile", outName);
         if (!data || data.length === 0) throw new Error("vazio");
-      } catch (e) {
-        data = null;
-      }
+      } catch (e) { data = null; }
       if (data) return data;
       onStatus("recodificando (formatos diferentes, mais lento)...");
       return ff.run("-f", "concat", "-safe", "0", "-i", "list.txt", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-c:a", "aac", "-ar", "44100", outName)
@@ -879,6 +949,19 @@
       });
       return new Blob([data.buffer], { type: "video/mp4" });
     });
+  }
+
+  // ─── Processa combo: tenta API, cai para ffmpeg se falhar ────────────────
+  function processComboWithFallback(ff, hookFile, bodyFile, ctaFile, outName, audioSafeMode, onStatus) {
+    if (window.processComboViaAPI) {
+      return window.processComboViaAPI(hookFile, bodyFile, ctaFile, onStatus)
+        .catch(function (apiErr) {
+          logMsg("API indisponível (" + apiErr.message + ") — processando localmente...");
+          onStatus && onStatus("processando localmente (fallback)...");
+          return joinClips(ff, [hookFile, bodyFile, ctaFile], outName, audioSafeMode, onStatus);
+        });
+    }
+    return joinClips(ff, [hookFile, bodyFile, ctaFile], outName, audioSafeMode, onStatus);
   }
 
   function generate() {
@@ -919,7 +1002,6 @@
 
       function runCombos() {
         var i = 0;
-        var RECYCLE_EVERY_COMBO = 1;
 
         function next() {
           if (i >= combos.length) {
@@ -936,7 +1018,8 @@
             els.progressText.textContent = "Processando " + (i + 1) + " de " + combos.length + " (" + label + ")...";
             els.progressFill.style.width = Math.round(((i) / combos.length) * 100) + "%";
 
-            joinClips(currentFF, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, audioSafeMode, function (status) {
+            // ← ÚNICA mudança aqui: usa processComboWithFallback em vez de joinClips
+            processComboWithFallback(currentFF, getFile(combo.h), getFile(combo.c), getFile(combo.t), outName, audioSafeMode, function (status) {
               els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
             })
               .then(function (blob) {
@@ -962,7 +1045,7 @@
                         currentFF = freshFF;
                         next();
                       }).catch(function (e) {
-                        state.error = "Não foi possível reiniciar o motor de vídeo pra continuar: " + e.message + ". Os vídeos já salvos estão seguros. Tente tocar em \"Gerar vídeos\" de novo pra fazer o restante.";
+                        state.error = "Não foi possível reiniciar o motor de vídeo: " + e.message;
                         state.processing = false;
                         render();
                       });
@@ -976,18 +1059,13 @@
                 }
               })
               .catch(function (e) {
-                state.error = "Erro ao processar " + label + ": " + e.message +
-                  ". Isso costuma acontecer quando os clipes têm formatos/resoluções muito diferentes entre si. " +
-                  "Os vídeos já processados continuam disponíveis pra download abaixo.";
+                state.error = "Erro ao processar " + label + ": " + e.message;
                 state.processing = false;
                 render();
               });
           }
 
-          // Recicla o motor de vídeo a cada poucos vídeos (não só entre lotes de 10) —
-          // o FFmpeg acumula memória interna aos poucos mesmo em arquivos pequenos,
-          // e isso evita travamentos precoces em pedidos grandes (100+ vídeos).
-          if (i > 0 && i % RECYCLE_EVERY_COMBO === 0) {
+          if (i > 0 && i % 1 === 0) {
             els.progressText.textContent = "Liberando memória antes do vídeo " + (i + 1) + "...";
             recycleFFmpeg(function (status) {
               els.progressText.textContent = status;
@@ -1069,7 +1147,6 @@
 
   render();
 
-  // Telegram Mini App bootstrap (no-op if not opened inside Telegram)
   try {
     if (window.Telegram && window.Telegram.WebApp) {
       window.Telegram.WebApp.ready();
@@ -1077,7 +1154,6 @@
     }
   } catch (e) {}
 
-  // PWA service worker registration (enables install + offline shell)
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", function () {
       navigator.serviceWorker.register("sw.js").catch(function () {});
