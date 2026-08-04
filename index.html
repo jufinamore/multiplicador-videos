@@ -896,7 +896,8 @@
     els.progressFill.style.width = "0%";
     render();
 
-    var BATCH_SIZE = combos.length > 80 ? 6 : 10;
+    var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    var BATCH_SIZE = isMobile ? (combos.length > 80 ? 6 : 10) : combos.length; // desktop: gera tudo de uma vez
 
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
