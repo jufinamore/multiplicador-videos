@@ -96,8 +96,13 @@
   .col-count { font-size: 11px; color: var(--faint); }
   .add-btn {
     display: inline-flex; align-items: center; gap: 6px; width: 100%; justify-content: center;
-    padding: 11px; border-radius: 10px; border: 1.5px dashed var(--card-border); background: rgba(255,255,255,0.03);
+    padding: 20px 11px; border-radius: 10px; border: 1.5px dashed var(--card-border); background: rgba(255,255,255,0.03);
     color: var(--muted); font-size: 13px; cursor: pointer; margin-bottom: 8px; font-weight: 600;
+    transition: all .15s ease;
+  }
+  .add-btn.drag-over {
+    border-color: var(--accent); background: rgba(255,77,109,0.12); color: #fff;
+    transform: scale(1.01);
   }
   .add-btn input { display: none; }
   .clip-item {
@@ -469,7 +474,7 @@
     var p = current();
     var items = p[field];
     var html = '<div class="col-head"><div class="col-title">' + title + '</div><div class="col-count">' + items.length + '</div></div>';
-    html += '<label class="add-btn">+ Adicionar vídeos<input type="file" accept="video/*" multiple data-field="' + field + '" /></label>';
+    html += '<label class="add-btn" data-field="' + field + '">📁 Arraste vídeos aqui ou clique<input type="file" accept="video/*" multiple data-field="' + field + '" /></label>';
     if (items.length === 0) {
       html += '<div class="empty-hint">Nenhum vídeo ainda</div>';
     } else {
@@ -495,6 +500,38 @@
         addFiles(e.target.getAttribute("data-field"), e.target.files);
       });
     });
+
+    // ─── Drag and drop ───────────────────────────────────────────────
+    els.columns.querySelectorAll(".add-btn").forEach(function (dropArea) {
+      var field = dropArea.getAttribute("data-field");
+
+      dropArea.addEventListener("dragover", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropArea.classList.add("drag-over");
+      });
+
+      dropArea.addEventListener("dragleave", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropArea.classList.remove("drag-over");
+      });
+
+      dropArea.addEventListener("drop", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropArea.classList.remove("drag-over");
+        var files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+          // Filtra só arquivos de vídeo (evita arrastar algo errado sem querer)
+          var videoFiles = Array.prototype.filter.call(files, function (f) {
+            return f.type.indexOf("video") === 0 || /\.(mp4|mov|webm|avi|mkv)$/i.test(f.name);
+          });
+          if (videoFiles.length > 0) addFiles(field, videoFiles);
+        }
+      });
+    });
+
     els.columns.querySelectorAll(".clip-remove").forEach(function (btn) {
       btn.addEventListener("click", function () {
         removeFile(btn.getAttribute("data-field"), btn.getAttribute("data-id"));
@@ -1042,6 +1079,13 @@
       render();
     });
   }
+
+  // Evita que soltar um arquivo fora das áreas de upload abra ele no navegador
+  ["dragover", "drop"].forEach(function (evt) {
+    document.body.addEventListener(evt, function (e) {
+      if (!e.target.closest(".add-btn")) e.preventDefault();
+    });
+  });
 
   els.generateBtn.addEventListener("click", generate);
   document.getElementById("silenceToggle").addEventListener("change", function (e) {
