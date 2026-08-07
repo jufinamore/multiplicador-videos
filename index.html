@@ -906,6 +906,111 @@
     });
   }
 
+  // ─── API Render (timeout dinâmico + fallback local) ───────────────────────
+  var API_URL = "https://vmp-api.onrender.com";
+  var API_MAX_COMBO_SIZE = 150 * 1024 * 1024; // 150MB: combo maior que isso já vai direto pro ffmpeg local
+
+  function timeoutForSize(bytes) {
+    if (bytes < 10 * 1024 * 1024) return 8000;    // <10MB: 8s
+    if (bytes < 30 * 1024 * 1024) return 20000;   // <30MB: 20s
+    if (bytes < 60 * 1024 * 1024) return 40000;   // <60MB: 40s
+    return 60000;                                  // 60MB+: 60s
+  }
+
+  function uploadClipToAPI(file) {
+    return new Promise(function (resolve, reject) {
+      var formData = new FormData();
+      formData.append("video", file);
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", API_URL + "/enviar-clipe");
+      xhr.timeout = timeoutForSize(file.size);
+      xhr.onload = function () {
+        if (xhr.status === 200) {
+          try { resolve(JSON.parse(xhr.responseText).fileId); }
+          catch (e) { reject(new Error("Resposta inválida da API")); }
+        } else { reject(new Error("API retornou status " + xhr.status)); }
+      };
+      xhr.onerror = function () { reject(new Error("Erro de conexão com a API")); };
+      xhr.ontimeout = function () { reject(new Error("API demorou demais pra esse arquivo")); };
+      xhr.send(formData);
+    });
+  }
+
+  function createTaskOnAPI(combinations) {
+    return fetch(API_URL + "/criar-tarefa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ combinations: combinations })
+    }).then(function (r) {
+      if (!r.ok) throw new Error("API retornou " + r.status);
+      return r.json();
+    });
+  }
+
+  function pollTask(taskId, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var maxAttempts = 300;
+      var attempts = 0;
+      function check() {
+        attempts++;
+        if (attempts > maxAttempts) { reject(new Error("Timeout aguardando processamento")); return; }
+        fetch(API_URL + "/tarefa/" + taskId)
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            onProgress && onProgress(data.completed, data.total);
+            if (data.status === "done") { resolve(data); }
+            else if (data.status === "error") { reject(new Error("Erro no servidor")); }
+            else { setTimeout(check, 1000); }
+          })
+          .catch(function () { setTimeout(check, 2000); });
+      }
+      check();
+    });
+  }
+
+  function downloadResultFromAPI(filename) {
+    return fetch(API_URL + "/download/" + filename)
+      .then(function (r) {
+        if (!r.ok) throw new Error("Erro ao baixar resultado");
+        return r.blob();
+      });
+  }
+
+  function processComboViaAPI(hookFile, bodyFile, ctaFile, onStatus) {
+    var totalSize = hookFile.size + bodyFile.size + ctaFile.size;
+    if (totalSize > API_MAX_COMBO_SIZE) {
+      return Promise.reject(new Error("Combo muito grande pro servidor (" + (totalSize / 1024 / 1024).toFixed(0) + "MB)"));
+    }
+
+    onStatus && onStatus("enviando para o servidor...");
+    return Promise.all([
+      uploadClipToAPI(hookFile),
+      uploadClipToAPI(bodyFile),
+      uploadClipToAPI(ctaFile)
+    ]).then(function (ids) {
+      onStatus && onStatus("criando tarefa no servidor...");
+      return createTaskOnAPI([{ hook: ids[0], body: ids[1], cta: ids[2] }]);
+    }).then(function (task) {
+      onStatus && onStatus("processando no servidor...");
+      return pollTask(task.taskId, function (done, total) {
+        onStatus && onStatus("processando no servidor (" + done + "/" + total + ")...");
+      });
+    }).then(function (taskResult) {
+      var result = taskResult.results && taskResult.results[0];
+      if (!result || result.status !== "ok") throw new Error("Servidor não retornou resultado válido");
+      onStatus && onStatus("baixando resultado...");
+      return downloadResultFromAPI(result.file);
+    });
+  }
+
+  function processComboWithFallback(ff, hookFile, bodyFile, ctaFile, outName, audioSafeMode, onStatus) {
+    return processComboViaAPI(hookFile, bodyFile, ctaFile, onStatus)
+      .catch(function (apiErr) {
+        logMsg("API indisponível (" + apiErr.message + ") — processando localmente...");
+        onStatus && onStatus("processando localmente (fallback)...");
+        return joinClips(ff, [hookFile, bodyFile, ctaFile], outName, audioSafeMode, onStatus);
+      });
+  }
 
 
   function renderWarning(msg) {
@@ -1012,7 +1117,7 @@
             els.progressText.textContent = "Processando " + (i + 1) + " de " + combos.length + " (" + label + ")...";
             els.progressFill.style.width = Math.round(((i) / combos.length) * 100) + "%";
 
-            joinClips(currentFF, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, audioSafeMode, function (status) {
+            processComboWithFallback(currentFF, getFile(combo.h), getFile(combo.c), getFile(combo.t), outName, audioSafeMode, function (status) {
               els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
             })
               .then(function (blob) {
