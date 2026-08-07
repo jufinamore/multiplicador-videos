@@ -1117,7 +1117,7 @@
             els.progressText.textContent = "Processando " + (i + 1) + " de " + combos.length + " (" + label + ")...";
             els.progressFill.style.width = Math.round(((i) / combos.length) * 100) + "%";
 
-            processComboWithFallback(currentFF, getFile(combo.h), getFile(combo.c), getFile(combo.t), outName, audioSafeMode, function (status) {
+            joinClips(currentFF, [getFile(combo.h), getFile(combo.c), getFile(combo.t)], outName, audioSafeMode, function (status) {
               els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
             })
               .then(function (blob) {
