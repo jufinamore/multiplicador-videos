@@ -163,6 +163,10 @@
     background: rgba(230,130,69,0.12); border: 1px solid #E68245; color: #FFC59A; border-radius: 10px;
     padding: 11px 13px; font-size: 12px; margin-top: 10px; white-space: pre-wrap;
   }
+  .warning-box {
+    background: rgba(139,92,246,0.14); border: 1px solid var(--violet); color: #E4DBFF; border-radius: 10px;
+    padding: 11px 13px; font-size: 12px; margin-top: 10px; white-space: pre-wrap;
+  }
   .log-box {
     background: #05040A; color: #8A83A8; font-family: ui-monospace, monospace; font-size: 10px;
     border-radius: 10px; padding: 10px; margin-top: 10px; max-height: 140px; overflow-y: auto; white-space: pre-wrap;
@@ -258,6 +262,7 @@
   </div>
 
   <div id="errorArea"></div>
+  <div id="warningArea"></div>
   <div class="results" id="results"></div>
 
   <div class="hint">
@@ -903,6 +908,25 @@
 
 
 
+  function renderWarning(msg) {
+    var box = document.getElementById("warningArea");
+    if (!box) return;
+    box.innerHTML = msg ? '<div class="warning-box">' + escapeHtml(msg) + '</div>' : "";
+  }
+
+  function checkMonthlyLimit(count) {
+    var code = "";
+    try { code = localStorage.getItem("vmp_code") || ""; } catch (e) {}
+    if (!code) return Promise.resolve({ allowed: true }); // sem código salvo, deixa passar (não deveria acontecer)
+
+    return fetch("/.netlify/functions/track-usage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: code, count: count })
+    }).then(function (r) { return r.json(); })
+      .catch(function () { return { allowed: true, offline: true }; }); // sem internet: não bloqueia
+  }
+
   function generate() {
     var p = current();
     var combos = [];
@@ -914,6 +938,35 @@
       });
     });
 
+    els.generateBtn.disabled = true;
+    els.generateBtn.textContent = "Verificando limite mensal...";
+    renderWarning(null);
+
+    checkMonthlyLimit(combos.length).then(function (result) {
+      if (result.allowed === false) {
+        state.error = "Você atingiu o limite de 1.000 vídeos neste mês. Ainda restam " + result.remaining +
+          " vídeo(s) disponíveis. O limite renova no início do próximo mês.";
+        render();
+        return;
+      }
+
+      // Avisos de marco (50% / 75% / 100%) — não bloqueiam, só informam
+      if (typeof result.used === "number" && typeof result.limit === "number" && result.limit > 0) {
+        var percent = (result.used / result.limit) * 100;
+        if (percent >= 100) {
+          renderWarning("⚠️ Você atingiu 100% do seu limite mensal (" + result.used + " de " + result.limit + " vídeos). Esses foram os últimos disponíveis até o mês renovar.");
+        } else if (percent >= 75) {
+          renderWarning("Você já usou 75% do seu limite mensal (" + result.used + " de " + result.limit + " vídeos).");
+        } else if (percent >= 50) {
+          renderWarning("Você já usou 50% do seu limite mensal (" + result.used + " de " + result.limit + " vídeos).");
+        }
+      }
+
+      startGeneration(p, combos);
+    });
+  }
+
+  function startGeneration(p, combos) {
     var removeSilenceOn = document.getElementById("silenceToggle").checked;
     var audioSafeMode = document.getElementById("audioSafeToggle").checked;
     var noiseDb = document.getElementById("silenceSensitivity").value;
