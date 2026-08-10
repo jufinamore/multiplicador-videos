@@ -8,16 +8,33 @@ function accessCodesStore() {
   });
 }
 
-var TRIAL_EXPIRES_AT = "2026-08-14T23:59:59-03:00";
-var TRIAL_CODES = [
-  "EKMQ0X88C", "GZHEYZ7NE", "39X3FI61R", "745K75BHV", "UUSTEPS75",
-  "02NER2ZOZ", "A5Z44HNNP", "HH6W205CL", "91H48COU8",
-  "RQ90KBU38", "FJRFQFMEO", "2RCV7B4TM", "E3S8KMQCJ", "DZ7MR4G3B", "TM4ZMSDVT"
-];
+// ---------- Códigos de teste (beta) ----------
+// Cada código agora tem sua própria data de validade.
+// Pra adicionar um novo código individual, é só incluir uma linha no objeto abaixo.
+var TRIAL_CODES = {
+  "EKMQ0X88C": "2026-08-14T23:59:59-03:00",
+  "GZHEYZ7NE": "2026-08-14T23:59:59-03:00",
+  "39X3FI61R": "2026-08-14T23:59:59-03:00",
+  "745K75BHV": "2026-08-14T23:59:59-03:00",
+  "UUSTEPS75": "2026-08-14T23:59:59-03:00",
+  "02NER2ZOZ": "2026-08-14T23:59:59-03:00",
+  "A5Z44HNNP": "2026-08-14T23:59:59-03:00",
+  "HH6W205CL": "2026-08-14T23:59:59-03:00",
+  "91H48COU8": "2026-08-14T23:59:59-03:00",
+  "RQ90KBU38": "2026-08-14T23:59:59-03:00",
+  "FJRFQFMEO": "2026-08-14T23:59:59-03:00",
+  "2RCV7B4TM": "2026-08-14T23:59:59-03:00",
+  "E3S8KMQCJ": "2026-08-14T23:59:59-03:00",
+  "DZ7MR4G3B": "2026-08-14T23:59:59-03:00",
+  "TM4ZMSDVT": "2026-08-14T23:59:59-03:00",
+  // Código específico — Mateus (retestando após correções de memória/performance)
+  "Z0C0EKU4I": "2026-08-25T23:59:59-03:00"
+};
 
 function isValidTrialCode(code) {
-  if (TRIAL_CODES.indexOf(code) === -1) return false;
-  return new Date() <= new Date(TRIAL_EXPIRES_AT);
+  var expiry = TRIAL_CODES[code];
+  if (!expiry) return false;
+  return new Date() <= new Date(expiry);
 }
 
 exports.handler = async function (event) {
@@ -50,12 +67,12 @@ exports.handler = async function (event) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ valid: false, error: "missing code" }) };
   }
 
-  // 1) Códigos de teste
+  // 1) Confere primeiro os códigos de teste (não gasta chamada ao banco de dados)
   if (isValidTrialCode(code)) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ valid: true, trial: true, plan: "trial" }) };
   }
 
-  // 2) Códigos reais (Hotmart)
+  // 2) Confere os códigos de compras reais (Hotmart), guardados no Blobs
   var store = accessCodesStore();
   var raw = await store.get(code);
 
@@ -68,7 +85,7 @@ exports.handler = async function (event) {
   // Verifica expiração para plano anual
   if (record.plan === "annual" && record.expiresAt) {
     if (new Date() > new Date(record.expiresAt)) {
-      await store.delete(code); // limpa automaticamente
+      await store.delete(code);
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ valid: false, reason: "expired" }) };
     }
   }
