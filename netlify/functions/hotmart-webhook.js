@@ -29,7 +29,20 @@ function getExpiresAt(plan) {
   return null;
 }
 
+// Validade do trial: 3 dias a partir de agora
+function getTrialExpiresAt() {
+  var exp = new Date();
+  exp.setDate(exp.getDate() + 3);
+  return exp.toISOString();
+}
+
+// Eventos que liberam acesso pago
 const APPROVED_EVENTS = ["PURCHASE_APPROVED", "PURCHASE_COMPLETE"];
+
+// Eventos que podem indicar início de trial (Hotmart varia conforme config)
+const TRIAL_EVENTS = ["PURCHASE_TRIAL", "TRIAL_STARTED", "SUBSCRIPTION_TRIAL"];
+
+// Eventos que removem acesso
 const REVOKE_EVENTS = [
   "PURCHASE_CANCELED",
   "PURCHASE_REFUNDED",
@@ -38,7 +51,32 @@ const REVOKE_EVENTS = [
   "PURCHASE_PROTEST",
   "SUBSCRIPTION_CANCELLATION"
 ];
+
+// Eventos de renovação
 const RENEWAL_EVENTS = ["SUBSCRIPTION_CHARGE_SUCCESS"];
+
+// Detecta se a compra é um trial olhando os próprios dados (não só o nome do evento).
+// A Hotmart pode marcar trial de várias formas dependendo da configuração da oferta.
+function looksLikeTrial(purchase) {
+  if (!purchase) return false;
+
+  // Status explícito de trial
+  var status = (purchase.status || "").toString().toUpperCase();
+  if (status.indexOf("TRIAL") !== -1) return true;
+
+  // Flag booleana de trial
+  if (purchase.is_trial === true) return true;
+
+  // Objeto de trial presente
+  if (purchase.trial || purchase.trial_period) return true;
+
+  // Valor zero com assinatura (típico de trial gratuito)
+  var price = purchase.price || {};
+  var value = (typeof price.value !== "undefined") ? price.value : purchase.full_price && purchase.full_price.value;
+  if (value === 0 || value === "0" || value === 0.0) return true;
+
+  return false;
+}
 
 exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {
@@ -76,6 +114,25 @@ exports.handler = async function (event) {
   var store = accessCodesStore();
   var codeKey = String(transaction).trim().toUpperCase();
 
+  // 1) TRIAL — reconhece pelo nome do evento OU pelos dados da compra.
+  //    Grava o código com validade de 3 dias, pra o cliente entrar no portal na hora.
+  var isTrialEvent = TRIAL_EVENTS.indexOf(eventType) !== -1;
+  var isApprovedButTrial = (APPROVED_EVENTS.indexOf(eventType) !== -1) && looksLikeTrial(purchase);
+
+  if (isTrialEvent || isApprovedButTrial) {
+    await store.set(codeKey, JSON.stringify({
+      email: buyerEmail,
+      name: buyerName,
+      status: "trial",
+      plan: "trial",
+      expiresAt: getTrialExpiresAt(),
+      event: eventType,
+      updatedAt: new Date().toISOString()
+    }));
+    return { statusCode: 200, body: "ok (trial)" };
+  }
+
+  // 2) COMPRA APROVADA (paga, não-trial)
   if (APPROVED_EVENTS.indexOf(eventType) !== -1) {
     var expiresAt = getExpiresAt(plan);
     await store.set(codeKey, JSON.stringify({
@@ -87,19 +144,30 @@ exports.handler = async function (event) {
       event: eventType,
       updatedAt: new Date().toISOString()
     }));
-  } else if (RENEWAL_EVENTS.indexOf(eventType) !== -1) {
+    return { statusCode: 200, body: "ok (approved)" };
+  }
+
+  // 3) RENOVAÇÃO — mantém ativo (e converte trial em pago quando a primeira cobrança entra)
+  if (RENEWAL_EVENTS.indexOf(eventType) !== -1) {
     var existing = await store.get(codeKey);
     var current = existing ? JSON.parse(existing) : { email: buyerEmail, name: buyerName, plan: plan };
     await store.set(codeKey, JSON.stringify({
       ...current,
       status: "active",
+      plan: (current.plan === "trial" || !current.plan) ? plan : current.plan,
+      expiresAt: getExpiresAt((current.plan === "trial" || !current.plan) ? plan : current.plan),
       event: eventType,
       renewedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }));
-  } else if (REVOKE_EVENTS.indexOf(eventType) !== -1) {
-    await store.delete(codeKey);
+    return { statusCode: 200, body: "ok (renewal)" };
   }
 
-  return { statusCode: 200, body: "ok" };
+  // 4) CANCELAMENTO / REEMBOLSO — remove o acesso
+  if (REVOKE_EVENTS.indexOf(eventType) !== -1) {
+    await store.delete(codeKey);
+    return { statusCode: 200, body: "ok (revoked)" };
+  }
+
+  return { statusCode: 200, body: "ok (ignored: " + eventType + ")" };
 };
