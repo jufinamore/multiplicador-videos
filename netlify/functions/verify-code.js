@@ -28,7 +28,9 @@ var TRIAL_CODES = {
   "DZ7MR4G3B": "2026-08-14T23:59:59-03:00",
   "TM4ZMSDVT": "2026-08-14T23:59:59-03:00",
   // Código específico — Mateus (retestando após correções de memória/performance)
-  "Z0C0EKU4I": "2026-08-25T23:59:59-03:00"
+  "Z0C0EKU4I": "2026-08-25T23:59:59-03:00",
+  // Cliente novo — trial 3 dias (compra 24/08)
+  "HP3954601835": "2026-08-27T23:59:59-03:00"
 };
 
 function isValidTrialCode(code) {
@@ -44,11 +46,9 @@ exports.handler = async function (event) {
     "Access-Control-Allow-Headers": "Content-Type",
     "Content-Type": "application/json"
   };
-
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers: corsHeaders, body: "" };
   }
-
   var code = "";
   if (event.httpMethod === "GET") {
     code = (event.queryStringParameters && event.queryStringParameters.code) || "";
@@ -60,28 +60,21 @@ exports.handler = async function (event) {
       code = "";
     }
   }
-
   code = code.trim().toUpperCase();
-
   if (!code) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ valid: false, error: "missing code" }) };
   }
-
   // 1) Confere primeiro os códigos de teste (não gasta chamada ao banco de dados)
   if (isValidTrialCode(code)) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ valid: true, trial: true, plan: "trial" }) };
   }
-
   // 2) Confere os códigos de compras reais (Hotmart), guardados no Blobs
   var store = accessCodesStore();
   var raw = await store.get(code);
-
   if (!raw) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ valid: false }) };
   }
-
   var record = JSON.parse(raw);
-
   // Verifica expiração para plano anual
   if (record.plan === "annual" && record.expiresAt) {
     if (new Date() > new Date(record.expiresAt)) {
@@ -89,7 +82,6 @@ exports.handler = async function (event) {
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ valid: false, reason: "expired" }) };
     }
   }
-
   return {
     statusCode: 200,
     headers: corsHeaders,
