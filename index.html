@@ -278,7 +278,6 @@
 
   // ---------- Access gate ----------
   var MASTER_CODE = "JUFAMILIA2026";
-  var EXTRA_CODE  = "ICARO2026";
   var GATE_CODE_KEY = "vmp_code";
 
   var gateEl = document.getElementById("gate");
@@ -307,7 +306,7 @@
     var entered = gateInput.value.trim().toUpperCase();
     if (!entered) return;
 
-    if (entered === MASTER_CODE.toUpperCase() || entered === EXTRA_CODE.toUpperCase()) {
+    if (entered === MASTER_CODE.toUpperCase()) {
       unlock(entered);
       return;
     }
@@ -332,7 +331,20 @@
   var storedCode = null;
   try { storedCode = localStorage.getItem(GATE_CODE_KEY); } catch (e) {}
 
-  if (storedCode && (storedCode.toUpperCase() === MASTER_CODE.toUpperCase() || storedCode.toUpperCase() === EXTRA_CODE.toUpperCase())) {
+  // Se o portal mandou o código pela URL (?code=XXXX), usa ele e entra direto.
+  try {
+    var urlParams = new URLSearchParams(window.location.search);
+    var urlCode = urlParams.get("code");
+    if (urlCode) {
+      urlCode = urlCode.trim().toUpperCase();
+      storedCode = urlCode;
+      try { localStorage.setItem(GATE_CODE_KEY, urlCode); } catch (e) {}
+      // limpa o código da barra de endereço, por segurança/estética
+      try { window.history.replaceState({}, document.title, window.location.pathname); } catch (e) {}
+    }
+  } catch (e) {}
+
+  if (storedCode && storedCode.toUpperCase() === MASTER_CODE.toUpperCase()) {
     gateEl.classList.add("hidden");
   } else if (storedCode) {
     gateEl.classList.add("hidden");
@@ -509,6 +521,7 @@
       });
     });
 
+    // ─── Drag and drop ───────────────────────────────────────────────
     els.columns.querySelectorAll(".add-btn").forEach(function (dropArea) {
       var field = dropArea.getAttribute("data-field");
 
@@ -530,6 +543,7 @@
         dropArea.classList.remove("drag-over");
         var files = e.dataTransfer.files;
         if (files && files.length > 0) {
+          // Filtra só arquivos de vídeo (evita arrastar algo errado sem querer)
           var videoFiles = Array.prototype.filter.call(files, function (f) {
             return f.type.indexOf("video") === 0 || /\.(mp4|mov|webm|avi|mkv)$/i.test(f.name);
           });
@@ -689,6 +703,7 @@
     renderResults();
   }
 
+  // ---------- FFmpeg ----------
   var ffmpegInstance = null;
   var ffmpegLoadingPromise = null;
   var logLines = [];
@@ -915,14 +930,14 @@
   function checkMonthlyLimit(count) {
     var code = "";
     try { code = localStorage.getItem("vmp_code") || ""; } catch (e) {}
-    if (!code) return Promise.resolve({ allowed: true });
+    if (!code) return Promise.resolve({ allowed: true }); // sem código salvo, deixa passar (não deveria acontecer)
 
     return fetch("/.netlify/functions/track-usage", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code: code, count: count })
     }).then(function (r) { return r.json(); })
-      .catch(function () { return { allowed: true, offline: true }; });
+      .catch(function () { return { allowed: true, offline: true }; }); // sem internet: não bloqueia
   }
 
   function generate() {
@@ -948,6 +963,7 @@
         return;
       }
 
+      // Avisos de marco (50% / 75% / 100%) — não bloqueiam, só informam
       if (typeof result.used === "number" && typeof result.limit === "number" && result.limit > 0) {
         var percent = (result.used / result.limit) * 100;
         if (percent >= 100) {
@@ -984,12 +1000,12 @@
     render();
 
     var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    var BATCH_SIZE = isMobile ? (combos.length > 80 ? 6 : 10) : 15;
+    var BATCH_SIZE = isMobile ? (combos.length > 80 ? 6 : 10) : 15; // desktop: lotes de 15; mobile: lotes menores
 
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
-      var RECYCLE_EVERY_CLIP = isMobile ? 5 : 15;
-      var RECYCLE_EVERY_COMBO = isMobile ? 2 : 10;
+      var RECYCLE_EVERY_CLIP = isMobile ? 5 : 15;      // prep: desktop recicla bem menos
+      var RECYCLE_EVERY_COMBO = isMobile ? 2 : 10;     // combos: desktop 10x menos recycles = muito mais rápido
 
       function runCombos() {
         var i = 0;
@@ -1130,6 +1146,7 @@
     });
   }
 
+  // Evita que soltar um arquivo fora das áreas de upload abra ele no navegador
   ["dragover", "drop"].forEach(function (evt) {
     document.body.addEventListener(evt, function (e) {
       if (!e.target.closest(".add-btn")) e.preventDefault();
