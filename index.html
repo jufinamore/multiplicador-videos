@@ -881,12 +881,15 @@
         var inputArgs = [];
         names.forEach(function (n) { inputArgs.push("-i", n); });
         var filterParts = names.map(function (_, i) { return "[" + i + ":v:0][" + i + ":a:0]"; }).join("");
-        var filterComplex = filterParts + "concat=n=" + names.length + ":v=1:a=1[outv][outa]";
+        // concat gera [outv]/[outa]; aresample=async=1 realinha o áudio de forma leve,
+        // corrigindo o delay (ex.: vídeos do WhatsApp) sem o custo de reprocessar pesado.
+        var filterComplex = filterParts + "concat=n=" + names.length + ":v=1:a=1[outv][outa0];[outa0]aresample=async=1:first_pts=0[outa]";
         var args = inputArgs.concat([
           "-filter_complex", filterComplex,
           "-map", "[outv]", "-map", "[outa]",
-          "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
           "-c:a", "aac", "-ar", "44100",
+          "-vsync", "2",
           outName
         ]);
         return ff.run.apply(ff, args).then(function () { return ff.FS("readFile", outName); });
