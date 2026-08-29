@@ -876,25 +876,52 @@
     }, Promise.resolve());
 
     if (audioSafeMode) {
-      return writeAll.then(function () {
-        onStatus("montando vídeo (modo seguro de áudio)...");
+      // MODO SEGURO LEVE:
+      // 1) Re-timestampa cada clipe sem reencodar (-c copy) pra corrigir o arraste de áudio.
+      // 2) Concatena pelo demuxer (também sem reencodar). Nada de libx264 -> não trava.
+      // 3) Só se algo falhar, cai pro filtro concat leve (veryfast + aresample) como fallback.
+      var fixedNames = names.map(function (n) { return "fx_" + n; });
+      var fixStep = names.reduce(function (prev, n, i) {
+        return prev.then(function () {
+          onStatus("preparando áudio " + (i + 1) + "/" + names.length + "...");
+          // -fflags +genpts regenera timestamps; -c copy NÃO reencoda (leve); +faststart pra tocar liso
+          return ff.run(
+            "-fflags", "+genpts", "-i", n,
+            "-c", "copy", "-avoid_negative_ts", "make_zero",
+            "-movflags", "+faststart",
+            fixedNames[i]
+          ).catch(function () { return null; });
+        });
+      }, Promise.resolve());
+
+      return writeAll.then(function () { return fixStep; }).then(function () {
+        onStatus("montando vídeo (leve)...");
+        var listContent = fixedNames.map(function (n) { return "file '" + n + "'"; }).join("\n");
+        ff.FS("writeFile", "safelist.txt", new TextEncoder().encode(listContent));
+        // concat por demuxer, copiando streams (sem reencodar) -> muito leve
+        return ff.run("-f", "concat", "-safe", "0", "-i", "safelist.txt", "-c", "copy", "-movflags", "+faststart", outName)
+          .catch(function () { return null; });
+      }).then(function () {
+        var data = null;
+        try { data = ff.FS("readFile", outName); if (!data || data.length === 0) data = null; } catch (e) { data = null; }
+        if (data) return data;
+
+        // FALLBACK (só se a cópia leve falhar por formatos incompatíveis):
+        onStatus("ajustando (formatos diferentes)...");
         var inputArgs = [];
         names.forEach(function (n) { inputArgs.push("-i", n); });
         var filterParts = names.map(function (_, i) { return "[" + i + ":v:0][" + i + ":a:0]"; }).join("");
-        // concat gera [outv]/[outa]; aresample=async=1 realinha o áudio de forma leve,
-        // corrigindo o delay (ex.: vídeos do WhatsApp) sem o custo de reprocessar pesado.
         var filterComplex = filterParts + "concat=n=" + names.length + ":v=1:a=1[outv][outa0];[outa0]aresample=async=1:first_pts=0[outa]";
         var args = inputArgs.concat([
           "-filter_complex", filterComplex,
           "-map", "[outv]", "-map", "[outa]",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-          "-c:a", "aac", "-ar", "44100",
-          "-vsync", "2",
+          "-c:a", "aac", "-ar", "44100", "-vsync", "2",
           outName
         ]);
         return ff.run.apply(ff, args).then(function () { return ff.FS("readFile", outName); });
       }).then(function (data) {
-        names.concat([outName]).forEach(function (n) {
+        names.concat(fixedNames).concat(["safelist.txt", outName]).forEach(function (n) {
           try { ff.FS("unlink", n); } catch (e) {}
         });
         return new Blob([data.buffer], { type: "video/mp4" });
