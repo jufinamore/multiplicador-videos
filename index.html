@@ -269,7 +269,7 @@
 
   <div class="hint">
     Dica: os clipes de um mesmo produto devem ter a mesma resolução/formato (ex: todos exportados do CapCut em 1080×1920) pra a montagem ser instantânea. Se os formatos variarem, ainda funciona, só que mais devagar.<br/><br/>
-    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v3.0-pwa</span>
+    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v3.3-pc25</span>
   </div>
 
 <script>
@@ -660,6 +660,40 @@
       });
     }
 
+    // ===== UI do MODO STREAMING (um vídeo por vez, iPhone Safari) =====
+    if (state.streamOne) {
+      var s = state.streamOne;
+      html += '<div style="margin-top:12px; padding:14px; border-radius:12px; background:var(--card); border:1px solid var(--card-border);">';
+      html += '<div style="font-size:13px; margin-bottom:10px;">Vídeo <b>' + escapeHtml(s.label) + '</b> pronto! Salve ele e toque em Continuar:</div>';
+      if (s.canShare) {
+        html += '<button class="download-all" id="streamSaveBtn" style="margin-bottom:8px;">📥 Salvar este vídeo</button>';
+      } else {
+        var burl = URL.createObjectURL(s.blob);
+        s._tmpUrl = burl;
+        html += '<a class="download-all" id="streamSaveLink" href="' + burl + '" download="' + escapeHtml(s.filename) + '" style="display:block; text-align:center; text-decoration:none; margin-bottom:8px;">📥 Baixar este vídeo</a>';
+      }
+      html += '<button class="download-all" id="streamContinueBtn" style="background:var(--ok); color:#06231C;">' + (s.isLast ? "✅ Salvei o último, finalizar" : "➡️ Salvei, gerar o próximo") + '</button>';
+      html += '</div>';
+      els.results.innerHTML = html;
+
+      var saveBtn = document.getElementById("streamSaveBtn");
+      if (saveBtn) saveBtn.addEventListener("click", function () {
+        try {
+          navigator.share({ files: [s.file], title: s.filename }).catch(function () {});
+        } catch (e) {}
+      });
+      var contBtn = document.getElementById("streamContinueBtn");
+      if (contBtn) contBtn.addEventListener("click", function () {
+        contBtn.disabled = true;
+        try { if (s._tmpUrl) URL.revokeObjectURL(s._tmpUrl); } catch (e) {}
+        var resume = state._resumeGeneration;
+        state._resumeGeneration = null;
+        if (resume) resume();
+      });
+      return;
+    }
+    // ===== FIM UI STREAMING =====
+
     if (state.awaitingBatch) {
       html += '<div style="margin-top:12px; padding:14px; border-radius:12px; background:var(--card); border:1px solid var(--card-border);">' +
         '<div style="font-size:13px; margin-bottom:10px;">Lote de <b>' + state.pendingBatch.length + '</b> vídeos pronto. Salve (pode tentar mais de uma vez, se precisar) e só depois toque em "Continuar":</div>';
@@ -1039,9 +1073,9 @@
                        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
     var BATCH_SIZE;
     if (!isMobile) {
-      BATCH_SIZE = combos.length;              // COMPUTADOR: tudo de uma vez, sem quebra de lote
+      BATCH_SIZE = 25;                          // COMPUTADOR: baixa de 25 em 25 (evita travar em volumes grandes)
     } else if (isIOS && !isStandalone) {
-      BATCH_SIZE = 8;                           // iPhone no Safari: lote pequeno
+      BATCH_SIZE = 3;                           // iPhone no Safari: lotes de 3 (salva de 3 em 3)
     } else {
       BATCH_SIZE = combos.length > 80 ? 20 : combos.length;  // iPhone-app / Android: lotes grandes
     }
@@ -1074,22 +1108,56 @@
               els.progressText.textContent = "Vídeo " + (i + 1) + " de " + combos.length + " (" + label + "): " + status;
             })
               .then(function (blob) {
-                var url = URL.createObjectURL(blob);
                 var filename = p.name.replace(/[^a-z0-9]+/gi, "-") + "-" + label + ".mp4";
-                state.pendingBatch.push({ name: label, filename: filename, url: url, blob: blob });
                 els.progressFill.style.width = Math.round(((i + 1) / combos.length) * 100) + "%";
                 i += 1;
 
-                // iOS: limpeza agressiva de memória a cada vídeo (evita "File could not be read Code=8").
+                // limpa arquivos temporários do FFmpeg a cada vídeo
                 if (isIOS) {
                   try {
-                    // remove qualquer arquivo temporário que tenha sobrado no FS do FFmpeg
                     var fsList = currentFF.FS("readdir", "/");
                     fsList.forEach(function (fn) {
                       if (/\.(mp4|txt)$/i.test(fn)) { try { currentFF.FS("unlink", fn); } catch (e) {} }
                     });
                   } catch (e) {}
                 }
+
+                var isLastComboStream = i >= combos.length;
+
+                // ===== MODO STREAMING (iPhone no Safari) =====
+                // Cada vídeo é salvo na hora e o blob é DESCARTADO da memória.
+                // Assim nunca empilha blob -> nunca estoura o Safari.
+                if (false) {  // streaming 1-a-1 desativado — usamos lote de 3 no iPhone-Safari
+                  state.results.push({ name: label, filename: filename, saved: true });
+                  els.progressText.textContent = "Vídeo " + i + " de " + combos.length + " pronto — toque em Salvar.";
+                  var fileObj;
+                  try { fileObj = new File([blob], filename, { type: "video/mp4" }); } catch (e) { fileObj = null; }
+                  var canShareOne = fileObj && navigator.canShare && navigator.canShare({ files: [fileObj] });
+
+                  state.awaitingBatch = true;
+                  state.streamOne = { label: label, filename: filename, blob: blob, file: fileObj, canShare: canShareOne, isLast: isLastComboStream };
+                  state._resumeGeneration = function () {
+                    // descarta o blob deste vídeo antes de seguir (libera memória)
+                    try { if (state.streamOne) state.streamOne.blob = null; } catch (e) {}
+                    state.streamOne = null;
+                    state.awaitingBatch = false;
+                    if (isLastComboStream) {
+                      state.processing = false;
+                      els.progressText.textContent = "Concluído: " + combos.length + " vídeos.";
+                      render();
+                    } else {
+                      recycleFFmpeg(function (status) { els.progressText.textContent = status; })
+                        .then(function (freshFF) { currentFF = freshFF; next(); })
+                        .catch(function () { next(); });
+                    }
+                  };
+                  render();
+                  return;
+                }
+                // ===== FIM MODO STREAMING =====
+
+                var url = URL.createObjectURL(blob);
+                state.pendingBatch.push({ name: label, filename: filename, url: url, blob: blob });
 
                 var isLastCombo = i >= combos.length;
                 if (state.pendingBatch.length >= BATCH_SIZE || isLastCombo) {
