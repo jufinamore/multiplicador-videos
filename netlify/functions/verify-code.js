@@ -28,7 +28,7 @@ var TRIAL_CODES = {
   "DZ7MR4G3B": "2026-08-14T23:59:59-03:00",
   "TM4ZMSDVT": "2026-08-14T23:59:59-03:00",
   // Código específico — Mateus (retestando após correções de memória/performance)
-  "Z0C0EKU4I": "2026-08-25T23:59:59-03:00",
+  "Z0C0EKU4I": "2026-09-06T23:59:59-03:00",
   // Cliente novo — trial 3 dias (compra 24/08)
   "HP3954601835": "2026-08-27T23:59:59-03:00"
 };
