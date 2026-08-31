@@ -269,7 +269,7 @@
 
   <div class="hint">
     Dica: os clipes de um mesmo produto devem ter a mesma resolução/formato (ex: todos exportados do CapCut em 1080×1920) pra a montagem ser instantânea. Se os formatos variarem, ainda funciona, só que mais devagar.<br/><br/>
-    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v3.4-fix-fonte</span>
+    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v3.6-ios-gc</span>
   </div>
 
 <script>
@@ -1072,17 +1072,17 @@
     var isStandalone = (window.navigator.standalone === true) ||
                        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
     var BATCH_SIZE;
-    if (!isMobile) {
-      BATCH_SIZE = 25;                          // COMPUTADOR: baixa de 25 em 25 (evita travar em volumes grandes)
-    } else if (isIOS && !isStandalone) {
-      BATCH_SIZE = 3;                           // iPhone no Safari: lotes de 3 (salva de 3 em 3)
+    if (isIOS) {
+      BATCH_SIZE = 5;        // QUALQUER iPhone/iPad: lotes de 5 (salva de 5 em 5). iOS trava se acumular muito.
+    } else if (isMobile) {
+      BATCH_SIZE = 15;       // Android: lotes de 15
     } else {
-      BATCH_SIZE = combos.length > 80 ? 20 : combos.length;  // iPhone-app / Android: lotes grandes
+      BATCH_SIZE = 25;       // COMPUTADOR: de 25 em 25
     }
 
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
-      var iosSafari = isIOS && !isStandalone;
+      var iosSafari = isIOS;  // reciclagem agressiva pra qualquer iOS
       var RECYCLE_EVERY_CLIP = iosSafari ? 3 : (isMobile ? 6 : 20);
       var RECYCLE_EVERY_COMBO = iosSafari ? 2 : (isMobile ? 4 : 30);
 
@@ -1163,16 +1163,21 @@
                       render();
                     } else {
                       els.progressText.textContent = "Preparando próximo lote...";
-                      recycleFFmpeg(function (status) {
-                        els.progressText.textContent = status;
-                      }).then(function (freshFF) {
-                        currentFF = freshFF;
-                        next();
-                      }).catch(function (e) {
-                        state.error = "Não foi possível reiniciar o motor de vídeo: " + e.message;
-                        state.processing = false;
-                        render();
-                      });
+                      // No iOS, uma pausa curta deixa o Safari coletar lixo de memória
+                      // antes de recarregar o motor — evita a degradação que trava lá pelo 25º.
+                      var pausa = isIOS ? 1200 : 0;
+                      setTimeout(function () {
+                        recycleFFmpeg(function (status) {
+                          els.progressText.textContent = status;
+                        }).then(function (freshFF) {
+                          currentFF = freshFF;
+                          next();
+                        }).catch(function (e) {
+                          state.error = "Não foi possível reiniciar o motor de vídeo: " + e.message;
+                          state.processing = false;
+                          render();
+                        });
+                      }, pausa);
                     }
                   };
                   els.progressText.textContent = "Lote pronto (" + state.pendingBatch.length + " vídeos) — salve pra continuar.";
