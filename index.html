@@ -269,7 +269,7 @@
 
   <div class="hint">
     Dica: os clipes de um mesmo produto devem ter a mesma resolução/formato (ex: todos exportados do CapCut em 1080×1920) pra a montagem ser instantânea. Se os formatos variarem, ainda funciona, só que mais devagar.<br/><br/>
-    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v2.1-audio-leve</span>
+    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v2.2-ios-lotes</span>
   </div>
 
 <script>
@@ -1030,12 +1030,16 @@
     render();
 
     var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    var BATCH_SIZE = isMobile ? (combos.length > 80 ? 6 : 10) : 15; // desktop: lotes de 15; mobile: lotes menores
+    // iOS/Safari tem limite baixo de memória por aba (erro WebKitBlobResource ao acumular blobs).
+    // Nele usamos lotes bem pequenos, salvando/baixando antes de acumular muito na memória.
+    var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+                (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPad iPadOS
+    var BATCH_SIZE = isIOS ? 3 : (isMobile ? (combos.length > 80 ? 6 : 10) : 15);
 
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
-      var RECYCLE_EVERY_CLIP = isMobile ? 5 : 15;      // prep: desktop recicla bem menos
-      var RECYCLE_EVERY_COMBO = isMobile ? 2 : 10;     // combos: desktop 10x menos recycles = muito mais rápido
+      var RECYCLE_EVERY_CLIP = isIOS ? 3 : (isMobile ? 5 : 15);   // iOS libera memória com mais frequência
+      var RECYCLE_EVERY_COMBO = isIOS ? 1 : (isMobile ? 2 : 10);  // iOS recicla a cada combo (evita estouro de blob)
 
       function runCombos() {
         var i = 0;
