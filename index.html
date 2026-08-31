@@ -269,7 +269,7 @@
 
   <div class="hint">
     Dica: os clipes de um mesmo produto devem ter a mesma resolução/formato (ex: todos exportados do CapCut em 1080×1920) pra a montagem ser instantânea. Se os formatos variarem, ainda funciona, só que mais devagar.<br/><br/>
-    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v3.3-pc25</span>
+    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v3.4-fix-fonte</span>
   </div>
 
 <script>
@@ -1112,15 +1112,9 @@
                 els.progressFill.style.width = Math.round(((i + 1) / combos.length) * 100) + "%";
                 i += 1;
 
-                // limpa arquivos temporários do FFmpeg a cada vídeo
-                if (isIOS) {
-                  try {
-                    var fsList = currentFF.FS("readdir", "/");
-                    fsList.forEach(function (fn) {
-                      if (/\.(mp4|txt)$/i.test(fn)) { try { currentFF.FS("unlink", fn); } catch (e) {} }
-                    });
-                  } catch (e) {}
-                }
+                // (removida a limpeza agressiva de .mp4 — ela apagava os arquivos-fonte
+                //  estabilizados e causava "File could not be read". O joinClips já limpa
+                //  seus próprios arquivos temporários ao final de cada vídeo.)
 
                 var isLastComboStream = i >= combos.length;
 
