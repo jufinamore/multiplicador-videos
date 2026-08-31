@@ -269,7 +269,7 @@
 
   <div class="hint">
     Dica: os clipes de um mesmo produto devem ter a mesma resolução/formato (ex: todos exportados do CapCut em 1080×1920) pra a montagem ser instantânea. Se os formatos variarem, ainda funciona, só que mais devagar.<br/><br/>
-    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v2.2-ios-lotes</span>
+    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão v3.0-pwa</span>
   </div>
 
 <script>
@@ -1034,12 +1034,23 @@
     // Nele usamos lotes bem pequenos, salvando/baixando antes de acumular muito na memória.
     var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
                 (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPad iPadOS
-    var BATCH_SIZE = isIOS ? 3 : (isMobile ? (combos.length > 80 ? 6 : 10) : 15);
+    // Detecta se está rodando como APP instalado (PWA standalone) — iOS libera mais memória nesse modo.
+    var isStandalone = (window.navigator.standalone === true) ||
+                       (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    var BATCH_SIZE;
+    if (!isMobile) {
+      BATCH_SIZE = combos.length;              // COMPUTADOR: tudo de uma vez, sem quebra de lote
+    } else if (isIOS && !isStandalone) {
+      BATCH_SIZE = 8;                           // iPhone no Safari: lote pequeno
+    } else {
+      BATCH_SIZE = combos.length > 80 ? 20 : combos.length;  // iPhone-app / Android: lotes grandes
+    }
 
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
-      var RECYCLE_EVERY_CLIP = isIOS ? 3 : (isMobile ? 5 : 15);   // iOS libera memória com mais frequência
-      var RECYCLE_EVERY_COMBO = isIOS ? 1 : (isMobile ? 2 : 10);  // iOS recicla a cada combo (evita estouro de blob)
+      var iosSafari = isIOS && !isStandalone;
+      var RECYCLE_EVERY_CLIP = iosSafari ? 3 : (isMobile ? 6 : 20);
+      var RECYCLE_EVERY_COMBO = iosSafari ? 2 : (isMobile ? 4 : 30);
 
       function runCombos() {
         var i = 0;
@@ -1068,6 +1079,17 @@
                 state.pendingBatch.push({ name: label, filename: filename, url: url, blob: blob });
                 els.progressFill.style.width = Math.round(((i + 1) / combos.length) * 100) + "%";
                 i += 1;
+
+                // iOS: limpeza agressiva de memória a cada vídeo (evita "File could not be read Code=8").
+                if (isIOS) {
+                  try {
+                    // remove qualquer arquivo temporário que tenha sobrado no FS do FFmpeg
+                    var fsList = currentFF.FS("readdir", "/");
+                    fsList.forEach(function (fn) {
+                      if (/\.(mp4|txt)$/i.test(fn)) { try { currentFF.FS("unlink", fn); } catch (e) {} }
+                    });
+                  } catch (e) {}
+                }
 
                 var isLastCombo = i >= combos.length;
                 if (state.pendingBatch.length >= BATCH_SIZE || isLastCombo) {
