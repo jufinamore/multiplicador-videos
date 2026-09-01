@@ -269,7 +269,7 @@
 
   <div class="hint">
     Dica: os clipes de um mesmo produto devem ter a mesma resolução/formato (ex: todos exportados do CapCut em 1080×1920) pra a montagem ser instantânea. Se os formatos variarem, ainda funciona, só que mais devagar.<br/><br/>
-    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão 5.3-lote5-unico</span>
+    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão 5.4-pc-celular</span>
   </div>
 
 <script>
@@ -693,15 +693,19 @@
     }
 
     if (state.awaitingBatch) {
-      html += '<div style="margin-top:12px; padding:14px; border-radius:12px; background:var(--card); border:1px solid var(--card-border);">' +
-        '<div style="font-size:13px; margin-bottom:10px;">Lote de <b>' + state.pendingBatch.length + '</b> vídeos pronto. Salve (pode tentar mais de uma vez, se precisar) e só depois toque em "Continuar":</div>';
+      html += '<div style="margin-top:12px; padding:14px; border-radius:12px; background:var(--card); border:1px solid var(--card-border);">';
       if (canShareFiles) {
+        // CELULAR: só Galeria. Some sozinho e segue pro próximo lote (sem botão manual).
         var galleryCount = Math.min(5, state.pendingBatch.length);
+        html += '<div style="font-size:13px; margin-bottom:10px;">Lote de <b>' + state.pendingBatch.length + '</b> vídeos pronto.</div>';
         html += '<button class="download-all" id="batchGalleryBtn" style="margin-bottom:8px;">📱 Salvar ' + galleryCount + ' na Galeria</button>';
+      } else {
+        // COMPUTADOR: só .zip + confirmação manual.
+        html += '<div style="font-size:13px; margin-bottom:10px;">Lote de <b>' + state.pendingBatch.length + '</b> vídeos pronto. Baixe e só depois toque em "Continuar":</div>';
+        html += '<button class="download-all" id="batchZipBtn" style="background:linear-gradient(135deg, var(--violet), var(--accent)); margin-bottom:8px;">⬇️ Baixar ' + state.pendingBatch.length + ' em .zip</button>';
+        html += '<div style="font-size:11px; color:var(--muted); margin:8px 0;">Confira que o arquivo baixou antes de continuar.</div>';
+        html += '<button class="download-all" id="batchContinueBtn" style="background:var(--ok); color:#06231C;">✅ Já salvei, continuar</button>';
       }
-      html += '<button class="download-all" id="batchZipBtn" style="background:linear-gradient(135deg, var(--violet), var(--accent)); margin-bottom:8px;">⬇️ Baixar ' + state.pendingBatch.length + ' em .zip</button>';
-      html += '<div style="font-size:11px; color:var(--muted); margin:8px 0;">Confira que os arquivos realmente baixaram/salvaram antes de continuar — depois de continuar, esse lote sai da memória e não pode ser gerado de novo sem refazer o processo.</div>';
-      html += '<button class="download-all" id="batchContinueBtn" style="background:var(--ok); color:#06231C;">✅ Já salvei, continuar</button>';
       html += '</div>';
     }
 
@@ -1034,7 +1038,8 @@
     render();
 
     var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    var BATCH_SIZE = 5; // lote de 5 -- zip e galeria sempre no mesmo número, sem descompasso
+    var isMobileForBatch = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    var BATCH_SIZE = isMobileForBatch ? 5 : 25; // celular: 5 (galeria); computador: 25 (zip)
 
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
