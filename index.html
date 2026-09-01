@@ -269,7 +269,7 @@
 
   <div class="hint">
     Dica: os clipes de um mesmo produto devem ter a mesma resolução/formato (ex: todos exportados do CapCut em 1080×1920) pra a montagem ser instantânea. Se os formatos variarem, ainda funciona, só que mais devagar.<br/><br/>
-    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão 5.2-fix-perda</span>
+    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão 5.3-lote5-unico</span>
   </div>
 
 <script>
@@ -1034,7 +1034,7 @@
     render();
 
     var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    var BATCH_SIZE = 10; // lote fixo de 10 -- igual à versão que gerou 140 com sucesso na galeria
+    var BATCH_SIZE = 5; // lote de 5 -- zip e galeria sempre no mesmo número, sem descompasso
 
     ensureFFmpeg().then(function (ff) {
       var currentFF = ff;
