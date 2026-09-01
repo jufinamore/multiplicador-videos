@@ -222,7 +222,7 @@
     <button id="gateBtn">Entrar</button>
     <div class="err" id="gateErr"></div>
     <div style="background:rgba(255,138,91,0.12); border:1px solid rgba(255,138,91,0.35); border-radius:12px; padding:12px 14px; font-size:12px; color:#FFD9C2; margin-top:16px; max-width:280px; line-height:1.5; text-align:left;">
-      ⚠️ Recomendado: até 70 vídeos por vez no celular. Pra volumes maiores, gere em partes (por exemplo, dividindo os ganchos em grupos menores), ou use o sistema no seu laptop ou PC — isso evita travamentos.
+      ⚠️ Recomendado: até 50 vídeos por vez no celular. Pra volumes maiores, gere em partes (por exemplo, dividindo os ganchos em grupos menores), ou use o sistema no seu laptop ou PC — isso evita travamentos.
     </div>
   </div>
 
@@ -252,7 +252,7 @@
     </select>
   </div>
   <div style="background:rgba(255,138,91,0.12); border:1px solid rgba(255,138,91,0.35); border-radius:12px; padding:12px 14px; font-size:12px; color:#FFD9C2; margin-bottom:14px; line-height:1.5;">
-    ⚠️ Recomendado: até 70 vídeos por vez no celular. Pra volumes maiores, gere em partes (por exemplo, dividindo os ganchos em grupos menores), ou use o sistema no seu laptop ou PC — isso evita travamentos.
+    ⚠️ Recomendado: até 50 vídeos por vez no celular. Pra volumes maiores, gere em partes (por exemplo, dividindo os ganchos em grupos menores), ou use o sistema no seu laptop ou PC — isso evita travamentos.
   </div>
   <button class="primary" id="generateBtn">Gerar vídeos</button>
 
@@ -269,7 +269,7 @@
 
   <div class="hint">
     Dica: os clipes de um mesmo produto devem ter a mesma resolução/formato (ex: todos exportados do CapCut em 1080×1920) pra a montagem ser instantânea. Se os formatos variarem, ainda funciona, só que mais devagar.<br/><br/>
-    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão 5.1-galeria5</span>
+    Nada aqui é salvo entre sessões — os vídeos ficam só na memória do navegador até você baixar. Feche o app só depois de baixar os resultados.<br/><br/><span style="opacity:0.4; font-size:10px;">Versão 5.2-fix-perda</span>
   </div>
 
 <script>
@@ -608,7 +608,7 @@
   }
 
   function saveBatchToGallery(onDone) {
-    var GALLERY_SAFE_CHUNK = 5; // reduzido de 10 para 5 -- reiniciou no teste de hoje com Chrome/iPhone
+    var GALLERY_SAFE_CHUNK = 5;
     var subset = state.pendingBatch.slice(0, GALLERY_SAFE_CHUNK);
     var files;
     try {
@@ -616,7 +616,25 @@
     } catch (e) { onDone && onDone(); return; }
     if (navigator.canShare && navigator.canShare({ files: files })) {
       navigator.share({ files: files, title: "Video Matrix Pro" })
-        .then(function () { onDone && onDone(); })
+        .then(function () {
+          // Marca como salvo APENAS o que foi realmente compartilhado agora
+          // (antes marcava o lote inteiro e perdia os que não tinham sido salvos de fato).
+          subset.forEach(function (r) {
+            try { URL.revokeObjectURL(r.url); } catch (e) {}
+            state.results.push({ name: r.name, filename: r.filename, saved: true });
+          });
+          state.pendingBatch = state.pendingBatch.slice(subset.length);
+          if (state.pendingBatch.length === 0) {
+            state.awaitingBatch = false;
+            var resume = state._resumeGeneration;
+            state._resumeGeneration = null;
+            render();
+            if (resume) resume();
+          } else {
+            render();
+          }
+          onDone && onDone();
+        })
         .catch(function () { onDone && onDone(); });
     } else {
       els.progressText.textContent = "Seu navegador não suporta salvar vários de uma vez — use o .zip abaixo.";
