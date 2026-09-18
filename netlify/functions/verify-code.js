@@ -33,6 +33,17 @@ var TRIAL_CODES = {
   "HP3954601835": "2026-08-27T23:59:59-03:00"
 };
 
+// Códigos privados de suporte/equipe. Configure apenas na Netlify como
+// VMP_PRIVATE_ACCESS_CODES (separados por vírgula); nunca inclua os valores
+// no código publicado.
+function isValidPrivateAccessCode(code) {
+  var privateCodes = (process.env.VMP_PRIVATE_ACCESS_CODES || "")
+    .split(",")
+    .map(function (value) { return value.trim().toUpperCase(); })
+    .filter(Boolean);
+  return privateCodes.indexOf(code) !== -1;
+}
+
 function isValidTrialCode(code) {
   var expiry = TRIAL_CODES[code];
   if (!expiry) return false;
@@ -64,7 +75,10 @@ exports.handler = async function (event) {
   if (!code) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ valid: false, error: "missing code" }) };
   }
-  // 1) Confere primeiro os códigos de teste (não gasta chamada ao banco de dados)
+  // 1) Confere o código privado e os códigos de teste antes do banco de dados.
+  if (isValidPrivateAccessCode(code)) {
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ valid: true, plan: "private" }) };
+  }
   if (isValidTrialCode(code)) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ valid: true, trial: true, plan: "trial" }) };
   }
@@ -75,7 +89,6 @@ exports.handler = async function (event) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ valid: false }) };
   }
   var record = JSON.parse(raw);
-  // Verifica expiração para plano anual
   if (record.plan === "annual" && record.expiresAt) {
     if (new Date() > new Date(record.expiresAt)) {
       await store.delete(code);
