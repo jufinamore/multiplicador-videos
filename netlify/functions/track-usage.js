@@ -10,6 +10,14 @@ function accessCodesStore() {
 
 var MONTHLY_LIMIT = 1000;
 
+function isValidPrivateAccessCode(code) {
+  var privateCodes = (process.env.VMP_PRIVATE_ACCESS_CODES || "")
+    .split(",")
+    .map(function (value) { return value.trim().toUpperCase(); })
+    .filter(Boolean);
+  return privateCodes.indexOf(code) !== -1;
+}
+
 function currentMonthKey() {
   var now = new Date();
   return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
@@ -44,8 +52,8 @@ exports.handler = async function (event) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "code e count são obrigatórios" }) };
   }
 
-  // Código universal (master) não tem limite — não passa pelo Blobs
-  if (code === "JUFAMILIA2026") {
+  // Código privado não tem limite — não passa pelo Blobs.
+  if (isValidPrivateAccessCode(code)) {
     return {
       statusCode: 200, headers: corsHeaders,
       body: JSON.stringify({ allowed: true, unlimited: true, remaining: null, limit: null })
@@ -62,7 +70,6 @@ exports.handler = async function (event) {
   var record = JSON.parse(raw);
   var monthKey = currentMonthKey();
 
-  // Reseta a contagem se mudou o mês
   if (record.monthKey !== monthKey) {
     record.monthKey = monthKey;
     record.videosThisMonth = 0;
@@ -73,19 +80,18 @@ exports.handler = async function (event) {
   var remaining = MONTHLY_LIMIT - used;
 
   if (requested > remaining) {
-    // Não incrementa — devolve quanto ainda pode gerar nesse mês
     return {
       statusCode: 200, headers: corsHeaders,
       body: JSON.stringify({ allowed: false, remaining: Math.max(0, remaining), limit: MONTHLY_LIMIT, used: used })
     };
   }
 
-  // Reserva o uso (incrementa) e salva
   record.videosThisMonth = used + requested;
   await store.set(code, JSON.stringify(record));
 
   return {
-    statusCode: 200, headers: corsHeaders,
+    statusCode: 200,
+    headers: corsHeaders,
     body: JSON.stringify({
       allowed: true,
       remaining: MONTHLY_LIMIT - record.videosThisMonth,
